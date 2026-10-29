@@ -2,7 +2,7 @@ name: Build & publish images
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -25,6 +25,8 @@ jobs:
             dockerfile: docker/Dockerfile.api
           - name: web
             dockerfile: docker/Dockerfile.web
+          - name: mlflow
+            dockerfile: docker/Dockerfile.mlflow
     steps:
       - uses: actions/checkout@v4
 

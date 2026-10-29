@@ -18,6 +18,10 @@ from ..services import AppState
 
 router = APIRouter(prefix="/api", tags=["inference"])
 
+# Reject decompression bombs before Pillow allocates gigabytes of RAM.
+Image.MAX_IMAGE_PIXELS = 60_000_000
+_MAX_PIXELS = 40_000_000
+
 
 class FeedbackRequest(BaseModel):
     prediction_id: str
@@ -41,11 +45,15 @@ async def _read_upload(file: UploadFile, state: AppState) -> Image.Image:
     try:
         image = Image.open(io.BytesIO(data))
         image.load()
+    except Image.DecompressionBombError as exc:
+        raise HTTPException(status_code=413, detail="image dimensions are too large") from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"unsupported image file: {exc}") from exc
     image = image.convert("RGB")
     if min(image.size) < 32:
         raise HTTPException(status_code=400, detail="image must be at least 32x32 pixels")
+    if image.width * image.height > _MAX_PIXELS:
+        raise HTTPException(status_code=413, detail="image exceeds the 40 megapixel limit")
     return image
 
 
@@ -153,10 +161,22 @@ async def predict_classification(
 def submit_feedback(payload: FeedbackRequest, state: AppState = Depends(get_state)) -> dict:
     if payload.verdict not in {"correct", "incorrect", "uncertain"}:
         raise HTTPException(status_code=400, detail="verdict must be correct, incorrect or uncertain")
-    state.store.add_feedback(payload.prediction_id, payload.verdict, payload.comment)
+    if not state.store.prediction_exists(payload.prediction_id):
+        raise HTTPException(status_code=404, detail=f"prediction {payload.prediction_id} not found")
+    state.store.add_feedback(payload.prediction_id, payload.verdict, payload.comment[:2000])
     return {"status": "recorded", "prediction_id": payload.prediction_id, "verdict": payload.verdict}
 
 
 @router.get("/predictions/recent")
 def recent_predictions(limit: int = 25, task: str | None = None, state: AppState = Depends(get_state)) -> dict:
+    if task is not None and task not in {"segmentation", "classification"}:
+        raise HTTPException(status_code=400, detail="task must be segmentation or classification")
     return {"predictions": state.store.recent(limit=max(1, min(limit, 200)), task=task)}
+
+
+@router.get("/predictions/{prediction_id}")
+def prediction_detail(prediction_id: str, state: AppState = Depends(get_state)) -> dict:
+    prediction = state.store.get_prediction(prediction_id)
+    if prediction is None:
+        raise HTTPException(status_code=404, detail=f"prediction {prediction_id} not found")
+    return prediction

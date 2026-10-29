@@ -72,6 +72,7 @@ class MonitoringStore:
                 meta TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_predictions_ts ON predictions(ts);
+            CREATE INDEX IF NOT EXISTS idx_predictions_task_ts ON predictions(task, ts);
             CREATE TABLE IF NOT EXISTS feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 prediction_id TEXT NOT NULL,
@@ -79,8 +80,15 @@ class MonitoringStore:
                 comment TEXT,
                 ts REAL NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_feedback_prediction ON feedback(prediction_id);
             """
         )
+        # WAL lets the FastAPI threadpool read while a prediction is being
+        # written; busy_timeout absorbs short write bursts instead of raising
+        # "database is locked" under concurrent traffic.
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.commit()
 
     def log_prediction(
@@ -131,7 +139,7 @@ class MonitoringStore:
         if task:
             query += " WHERE task = ?"
             params.append(task)
-        query += " ORDER BY ts DESC LIMIT ?"
+        query += " ORDER BY ts DESC, rowid DESC LIMIT ?"
         params.append(limit)
         with self._lock:
             return list(self._conn.execute(query, params))
@@ -177,6 +185,102 @@ class MonitoringStore:
             ).fetchall()
         return {str(row["label"]): int(row["n"]) for row in rows}
 
+    def ping(self) -> bool:
+        try:
+            with self._lock:
+                return self._conn.execute("SELECT 1").fetchone()[0] == 1
+        except sqlite3.Error:
+            return False
+
+    def prediction_exists(self, prediction_id: str) -> bool:
+        with self._lock:
+            row = self._conn.execute("SELECT 1 FROM predictions WHERE id = ?", (prediction_id,)).fetchone()
+        return row is not None
+
+    def get_prediction(self, prediction_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM predictions WHERE id = ?", (prediction_id,)).fetchone()
+            if row is None:
+                return None
+            verdicts = self._conn.execute(
+                "SELECT verdict, comment, ts FROM feedback WHERE prediction_id = ? ORDER BY ts DESC, rowid DESC",
+                (prediction_id,),
+            ).fetchall()
+        return {
+            "id": row["id"],
+            "ts": row["ts"],
+            "task": row["task"],
+            "model_id": row["model_id"],
+            "model_version": row["model_version"],
+            "filename": row["filename"],
+            "latency_ms": row["latency_ms"],
+            "label": row["label"],
+            "confidence": row["confidence"],
+            "features": json.loads(row["features"] or "{}"),
+            "meta": json.loads(row["meta"] or "{}"),
+            "feedback": [
+                {"verdict": item["verdict"], "comment": item["comment"], "ts": item["ts"]} for item in verdicts
+            ],
+        }
+
+    def stats(self) -> dict:
+        """Operational view of the ledger for the console and deployment checks."""
+        size = self.path.stat().st_size if self.path.exists() else 0
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS n, MIN(ts) AS oldest, MAX(ts) AS newest FROM predictions"
+            ).fetchone()
+            feedback = self._conn.execute("SELECT COUNT(*) AS n FROM feedback").fetchone()["n"]
+            journal = self._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        return {
+            "path": str(self.path),
+            "size_bytes": size,
+            "predictions": int(row["n"]),
+            "feedback": int(feedback),
+            "oldest_ts": row["oldest"],
+            "newest_ts": row["newest"],
+            "journal_mode": str(journal).lower(),
+            "wal": str(journal).lower() == "wal",
+        }
+
+    def prune(self, days: int) -> dict:
+        """Delete predictions older than ``days`` and their orphaned feedback."""
+        cutoff = time.time() - max(1, days) * 86400
+        with self._lock, self._conn:
+            removed = self._conn.execute("DELETE FROM predictions WHERE ts < ?", (cutoff,)).rowcount
+            orphaned = self._conn.execute(
+                "DELETE FROM feedback WHERE prediction_id NOT IN (SELECT id FROM predictions)"
+            ).rowcount
+        return {"removed_predictions": removed, "removed_feedback": orphaned, "older_than_days": days}
+
+    def backup(self, path: str | Path) -> Path:
+        """Consistent online copy via SQLite's backup API (safe while serving)."""
+        target_path = Path(path)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, sqlite3.connect(target_path) as target:
+            self._conn.backup(target)
+        return target_path
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def export_rows(self, task: str | None = None, limit: int = 100000) -> list[sqlite3.Row]:
+        query = (
+            "SELECT p.*,"
+            " (SELECT verdict FROM feedback WHERE prediction_id = p.id ORDER BY ts DESC, rowid DESC LIMIT 1) AS verdict,"
+            " (SELECT comment FROM feedback WHERE prediction_id = p.id ORDER BY ts DESC, rowid DESC LIMIT 1) AS comment"
+            " FROM predictions p"
+        )
+        params: list = []
+        if task:
+            query += " WHERE p.task = ?"
+            params.append(task)
+        query += " ORDER BY p.ts DESC, p.rowid DESC LIMIT ?"
+        params.append(limit)
+        with self._lock:
+            return list(self._conn.execute(query, params))
+
     def drift(self, reference: dict | None, task: str, window: int = 200) -> dict:
         if not reference:
             return {"status": "no_reference", "features": {}, "window": 0}
@@ -191,15 +295,14 @@ class MonitoringStore:
             }
         features: dict[str, dict] = {}
         statuses: list[str] = []
+        payloads: list[dict] = []
+        for row in rows:
+            try:
+                payloads.append(json.loads(row["features"] or "{}"))
+            except json.JSONDecodeError:
+                payloads.append({})
         for name in FEATURE_NAMES:
-            values: list[float] = []
-            for row in rows:
-                try:
-                    payload = json.loads(row["features"] or "{}")
-                except json.JSONDecodeError:
-                    payload = {}
-                if name in payload:
-                    values.append(float(payload[name]))
+            values = [float(payload[name]) for payload in payloads if name in payload]
             ref = (reference.get("features") or {}).get(name)
             if not ref or not values:
                 continue
@@ -262,14 +365,30 @@ class MonitoringStore:
             "recent": recent,
         }
 
-    def export_csv(self, path: str | Path) -> Path:
+    def export_csv(self, path: str | Path, task: str | None = None) -> Path:
+        """Write the ledger (including the latest clinician verdict) as CSV."""
         import csv
 
-        rows = self._rows(limit=100000)
+        rows = self.export_rows(task=task)
         path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
-            writer.writerow(["id", "timestamp", "task", "model_id", "model_version", "filename", "latency_ms", "label", "confidence"])
+            writer.writerow(
+                [
+                    "id",
+                    "timestamp",
+                    "task",
+                    "model_id",
+                    "model_version",
+                    "filename",
+                    "latency_ms",
+                    "label",
+                    "confidence",
+                    "verdict",
+                    "comment",
+                ]
+            )
             for row in rows:
                 writer.writerow(
                     [
@@ -282,6 +401,8 @@ class MonitoringStore:
                         round(row["latency_ms"] or 0, 2),
                         row["label"],
                         round(row["confidence"] or 0, 4),
+                        row["verdict"],
+                        row["comment"],
                     ]
                 )
         return path

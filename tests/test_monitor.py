@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import json
+import sqlite3
+import time
 
 import numpy as np
 
@@ -103,7 +105,56 @@ def test_store_ledger_feedback_and_export(tmp_path, feature_reference):
     path = store.export_csv(tmp_path / "export.csv")
     rows = list(csv.reader(path.open(encoding="utf-8")))
     assert rows[0][0] == "id"
+    assert rows[0][-2:] == ["verdict", "comment"]
     assert len(rows) == 3
+    by_task = {row[2]: row for row in rows[1:]}
+    assert by_task["segmentation"][-2] == "correct"
+    assert by_task["segmentation"][-1] == "matches radiology read"
+    assert by_task["classification"][-2:] == ["", ""]
+
+
+def test_store_uses_wal_indexes_and_maintenance(tmp_path):
+    db_path = tmp_path / "maintenance.db"
+    store = MonitoringStore(db_path)
+    stats = store.stats()
+    assert stats["wal"] is True
+    assert stats["journal_mode"] == "wal"
+
+    with sqlite3.connect(db_path) as conn:
+        indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+    assert {"idx_predictions_ts", "idx_predictions_task_ts", "idx_feedback_prediction"} <= indexes
+
+    pid = store.log_prediction(
+        task="classification",
+        model_id="densenet",
+        model_version="run-1",
+        filename="old.png",
+        latency_ms=12.0,
+        label="pneumonia",
+        confidence=0.7,
+        features={"brightness": 3.0},
+        meta={"margin": 0.4},
+    )
+    store.add_feedback(pid, "incorrect", "needs review")
+    assert store.prediction_exists(pid)
+    detail = store.get_prediction(pid)
+    assert detail is not None
+    assert detail["features"]["brightness"] == 3.0
+    assert detail["feedback"][0]["verdict"] == "incorrect"
+    assert store.get_prediction("missing") is None
+
+    backup_path = store.backup(tmp_path / "backup.db")
+    backup = MonitoringStore(backup_path)
+    assert backup.count() == 1
+    backup.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE predictions SET ts = ? WHERE id = ?", (time.time() - 40 * 86400, pid))
+    result = store.prune(30)
+    assert result["removed_predictions"] == 1
+    assert result["removed_feedback"] == 1
+    assert store.count() == 0
+    store.close()
 
 
 def test_drift_requires_min_window_then_tracks_shift(tmp_path, feature_reference, rng):

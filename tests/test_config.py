@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import textwrap
 
 import pytest
 
-from medmlops.config import Config, Env, flatten, load_config
+from medmlops.config import Config, Env, flatten, load_config, load_env_defaults
 
 
 @pytest.fixture()
@@ -70,3 +71,18 @@ def test_env_reads_dotenv_without_overriding(tmp_path, monkeypatch):
     assert env.get_bool("MEDMLOPS_DEMO_FLAG", default=True) is True
     monkeypatch.setenv("MEDMLOPS_DEMO_KEY", "from-env")
     assert env.get("MEDMLOPS_DEMO_KEY") == "from-env"
+
+
+def test_load_env_defaults_populates_process_env(tmp_path, monkeypatch):
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("MLFLOW_TRACKING_URI=sqlite:///from-file.db\nEMPTY_VALUE=\n", encoding="utf-8")
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.delenv("EMPTY_VALUE", raising=False)
+
+    load_env_defaults(dotenv)
+    assert os.environ["MLFLOW_TRACKING_URI"] == "sqlite:///from-file.db"
+    assert "EMPTY_VALUE" not in os.environ
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://server:5000")
+    load_env_defaults(dotenv)
+    assert os.environ["MLFLOW_TRACKING_URI"] == "http://server:5000"

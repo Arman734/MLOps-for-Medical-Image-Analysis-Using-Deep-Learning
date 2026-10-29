@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, formatMs, formatPct, timeAgo, type MonitoringSummary } from "../api";
-import { ActivityIcon, AlertIcon, CheckIcon, DownloadIcon, RefreshIcon, ShieldIcon, XIcon } from "./Icons";
+import { api, formatMs, formatPct, timeAgo, type MonitoringSummary, type StorageStats } from "../api";
+import { ActivityIcon, AlertIcon, CheckIcon, DatabaseIcon, DownloadIcon, RefreshIcon, ShieldIcon, XIcon } from "./Icons";
 import StatCard from "./StatCard";
 
 type Props = {
@@ -18,6 +18,7 @@ const STATUS_TONE: Record<string, string> = {
 
 export default function MonitoringPanel({ notify, refreshSignal }: Props) {
   const [summary, setSummary] = useState<MonitoringSummary | null>(null);
+  const [storage, setStorage] = useState<StorageStats | null>(null);
   const [task, setTask] = useState<"segmentation" | "classification">("segmentation");
   const [taskChosen, setTaskChosen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -26,7 +27,9 @@ export default function MonitoringPanel({ notify, refreshSignal }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setSummary(await api.monitoring());
+      const [next, stats] = await Promise.all([api.monitoring(), api.storage()]);
+      setSummary(next);
+      setStorage(stats);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Monitoring unavailable");
@@ -48,6 +51,17 @@ export default function MonitoringPanel({ notify, refreshSignal }: Props) {
       await load();
     } catch (err) {
       notify(err instanceof Error ? err.message : "Feedback failed", "error");
+    }
+  };
+
+  const prune = async () => {
+    if (!window.confirm("Delete predictions older than 30 days? This cannot be undone.")) return;
+    try {
+      const result = await api.prune(30);
+      notify(`Pruned ${result.removed_predictions} predictions and ${result.removed_feedback} feedback rows`);
+      await load();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Prune failed", "error");
     }
   };
 
@@ -312,6 +326,52 @@ export default function MonitoringPanel({ notify, refreshSignal }: Props) {
           </div>
         ) : (
           <p className="muted">No predictions logged yet. Run a case from the Analyze tab.</p>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <span className="eyebrow">Persistence</span>
+            <h2>Ledger storage</h2>
+          </div>
+          <span className={`badge ${storage?.wal ? "ok" : "warn"}`}>
+            <DatabaseIcon size={12} /> {storage?.wal ? "WAL" : storage?.journal_mode ?? "unknown"}
+          </span>
+        </div>
+        {storage ? (
+          <>
+            <ul className="kv-list">
+              <li>
+                <span>Database</span>
+                <span className="mono small">{storage.path}</span>
+              </li>
+              <li>
+                <span>Size</span>
+                <span className="mono">{(storage.size_bytes / 1024).toFixed(1)} KiB</span>
+              </li>
+              <li>
+                <span>Rows</span>
+                <span className="mono">
+                  {storage.predictions} predictions · {storage.feedback} feedback
+                </span>
+              </li>
+              <li>
+                <span>Oldest entry</span>
+                <span className="mono">{storage.oldest_ts ? timeAgo(storage.oldest_ts) : "—"}</span>
+              </li>
+            </ul>
+            <div className="head-actions" style={{ marginTop: 14 }}>
+              <a className="btn btn-ghost xs" href={`/api/monitoring/export.csv?task=${task}`}>
+                <DownloadIcon size={13} /> Export {task}
+              </a>
+              <button type="button" className="btn btn-ghost xs" onClick={() => void prune()}>
+                Prune older than 30 days
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="muted">Ledger status unavailable.</p>
         )}
       </div>
     </section>

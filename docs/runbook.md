@@ -17,13 +17,37 @@ The API loads every `*.pt` checkpoint with a matching `*.json` sidecar from
 
 ```bash
 curl -s localhost:8000/api/health | jq
+curl -i localhost:8000/api/ready            # 200 ready / 503 not ready
 curl -s localhost:8000/api/models | jq '.segmentation_ready, .classification_ready, .load_errors'
+curl -s localhost:8000/api/monitoring/storage | jq
 curl -s localhost:8000/api/monitoring/summary | jq '.feedback, .recent_latency_p95_ms'
-python scripts/smoke_test.py
+python scripts/smoke_test.py                # add --api-key when auth is enabled
 ```
 
 `load_errors` should be empty. A non-empty list means a corrupt checkpoint or a missing
 architecture dependency — retrain or restore the previous artifact.
+
+When `MEDMLOPS_API_KEY` is set, every `/api` route except `/api/health` and `/api/ready` requires
+`X-API-Key: <key>` (or `Authorization: Bearer <key>`). `401` means a missing or wrong key; the
+console shows an unlock form.
+
+## Deployment bootstrap
+
+A container can start with an empty model directory and pull champions from the registry:
+
+```dotenv
+MLFLOW_TRACKING_URI=https://dagshub.com/<user>/<repo>.mlflow   # or an MLflow server
+MEDMLOPS_BOOTSTRAP_FROM_REGISTRY=1
+MEDMLOPS_REGISTRY_NAMES=isic-lesion-unet,pneumonia-densenet
+```
+
+`/api/ready` stays `503` until both models load. To adopt a new champion without restarting:
+
+```bash
+curl -X POST -H "X-API-Key: $MEDMLOPS_API_KEY" localhost:8000/api/models/sync
+# or: make sync-models
+```
+
 
 ## Alert playbook
 
@@ -53,13 +77,37 @@ architecture dependency — retrain or restore the previous artifact.
    are sampled across the whole train split, so `watch` reflects a real feature shift, not row order.
 
 ### Feedback “incorrect” rate increasing
-1. Export the ledger: `GET /api/monitoring/export.csv`.
+1. Export the ledger: `GET /api/monitoring/export.csv` (includes the latest verdict and comment).
 2. Group by model version and label; a single version standing out means a bad promotion.
 3. Roll back the champion (below) and file the affected cases for the next training set.
 
 ### API returns 503 on prediction
-No checkpoint for that task. Train one (`make train-seg` / `make train-clf`) or point
-`MEDMLOPS_MODEL_DIR` at a directory containing the artifact.
+No checkpoint for that task. Train one (`make train-seg` / `make train-clf`), sync the champion
+(`POST /api/models/sync`), or point `MEDMLOPS_MODEL_DIR` at a directory containing the artifact.
+
+## Ledger backup and retention
+
+| Task | Command |
+| --- | --- |
+| Inspect size / rows / WAL | `make db-stats` |
+| Consistent online backup | `make db-backup` |
+| Prune predictions older than N days | `python -m medmlops.cli db prune --days 30` |
+| Streaming export | `curl -o ledger.csv localhost:8000/api/monitoring/export.csv` |
+
+WAL mode creates `monitoring.db-wal` and `monitoring.db-shm` next to the database — that is normal.
+Never copy the live `.db` file on its own; use the backup command/API, which relies on SQLite’s
+online backup API.
+
+
+## Tracking backend issues
+
+- **DagsHub run fails immediately** — `DAGSHUB_USER_NAME`, `DAGSHUB_REPO_NAME` and
+  `DAGSHUB_USER_TOKEN` must all be set when `MEDMLOPS_TRACKER=dagshub` or `--dagshub` is used.
+  This fail-fast behaviour prevents silently writing to local SQLite.
+- **Artifacts missing on a remote server** — the server must run with `--serve-artifacts` (the
+  bundled image does); don't set `MLFLOW_ARTIFACT_ROOT` for HTTP/DagsHub backends.
+- **Local artifacts missing** — local experiments write to `MLFLOW_ARTIFACT_ROOT` (default
+  `mlartifacts/`). Check the experiment's artifact location in the MLflow UI.
 
 ## Champion rollback
 

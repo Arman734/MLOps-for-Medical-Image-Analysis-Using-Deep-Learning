@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, timeAgo, type ModelsResponse, type RegistryModel } from "../api";
-import { AlertIcon, CheckIcon, CpuIcon, LayersIcon, RefreshIcon } from "./Icons";
+import { AlertIcon, CheckIcon, CpuIcon, DatabaseIcon, LayersIcon, RefreshIcon } from "./Icons";
 
 type Props = {
   models: ModelsResponse | null;
@@ -36,6 +36,25 @@ export default function ModelsPanel({ models, onRefresh, notify }: Props) {
     }
   };
 
+  const sync = async () => {
+    setBusy("sync");
+    try {
+      const result = await api.syncModels();
+      if (result.downloaded.length) {
+        const suffix = result.errors.length ? ` · ${result.errors.length} unavailable` : "";
+        notify(`Synced ${result.downloaded.length} champion checkpoint(s) from MLflow${suffix}`);
+      } else {
+        const reason = result.errors[0]?.error ?? "registry is empty";
+        notify(`No champions to sync — ${reason}`, "error");
+      }
+      await onRefresh();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Registry sync failed", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const loaded = models?.models ?? [];
   const registry = models?.registry ?? [];
 
@@ -45,11 +64,16 @@ export default function ModelsPanel({ models, onRefresh, notify }: Props) {
         <div>
           <span className="eyebrow">Model registry</span>
           <h2>Checkpoints &amp; champions</h2>
-          <p className="muted">Every training run registers a version in MLflow. The console serves the newest local checkpoint; the champion alias marks the promoted release.</p>
+          <p className="muted">Every training run registers a version in MLflow. The console serves the newest local checkpoint; the champion alias marks the promoted release. Sync pulls champion checkpoints onto a fresh deployment.</p>
         </div>
-        <button type="button" className="btn btn-ghost" onClick={() => void onRefresh()}>
-          <RefreshIcon size={15} /> Refresh
-        </button>
+        <div className="head-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => void sync()} disabled={busy !== null}>
+            <DatabaseIcon size={15} /> {busy === "sync" ? "Syncing…" : "Sync registry"}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => void onRefresh()}>
+            <RefreshIcon size={15} /> Refresh
+          </button>
+        </div>
       </div>
 
       {!loaded.length && (

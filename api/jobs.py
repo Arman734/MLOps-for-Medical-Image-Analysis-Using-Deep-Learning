@@ -54,6 +54,12 @@ class JobManager:
             running = self._running()
             if running is not None:
                 return {"error": f"job {running.id} is already {running.status}", "job_id": running.id}
+            finished = sorted(
+                (job for job in self.jobs.values() if job.status != "running"),
+                key=lambda job: job.started_at,
+            )
+            for stale in finished[:-20]:
+                self.jobs.pop(stale.id, None)
             job_id = uuid.uuid4().hex[:8]
             cmd = [sys.executable, "-m", "medmlops.cli", "train", "--config", config, "--device", "auto"]
             for override in overrides:
@@ -85,11 +91,14 @@ class JobManager:
                     del job.log[: len(job.log) - self._max_lines]
         job.returncode = job.process.wait()
         with self._lock:
-            job.status = "succeeded" if job.returncode == 0 else "failed"
-            job.finished_at = time.time()
-            if job.returncode == 0:
-                job.log.append("[job] training finished - refreshing loaded models")
-        if job.returncode == 0 and self._on_finish is not None:
+            # A cancelled job must stay cancelled: the reader can finish after
+            # the cancel endpoint already changed the status.
+            if job.status == "running":
+                job.status = "succeeded" if job.returncode == 0 else "failed"
+                job.finished_at = time.time()
+                if job.returncode == 0:
+                    job.log.append("[job] training finished - refreshing loaded models")
+        if job.returncode == 0 and job.status == "succeeded" and self._on_finish is not None:
             try:
                 self._on_finish()
             except Exception as exc:  # pragma: no cover - refresh is best effort
@@ -112,10 +121,10 @@ class JobManager:
         return payload
 
     def get(self, job_id: str, log_offset: int = 0) -> dict | None:
-        job = self.jobs.get(job_id)
-        if job is None:
-            return None
         with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None:
+                return None
             payload = self._public(job)
             payload["log"] = job.log[log_offset:]
             payload["log_offset"] = log_offset
@@ -126,16 +135,42 @@ class JobManager:
             return [self._public(job, full_log=False) for job in sorted(self.jobs.values(), key=lambda j: j.started_at, reverse=True)]
 
     def cancel(self, job_id: str) -> dict | None:
-        job = self.jobs.get(job_id)
-        if job is None:
-            return None
-        if job.status == "running" and job.process is not None:
-            job.process.terminate()
-            with self._lock:
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None:
+                return None
+            if job.status == "running" and job.process is not None:
                 job.status = "cancelled"
                 job.finished_at = time.time()
                 job.log.append("[job] cancelled by user")
+                process = job.process
+            else:
+                process = None
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
         return self._public(job)
+
+    def shutdown(self) -> None:
+        """Stop any training subprocess when the API shuts down."""
+        with self._lock:
+            running = [job for job in self.jobs.values() if job.status == "running" and job.process is not None]
+            for job in running:
+                job.status = "cancelled"
+                job.log.append("[job] cancelled (server shutdown)")
+        for job in running:
+            assert job.process is not None
+            job.process.terminate()
+        for job in running:
+            if job.process is None:
+                continue
+            try:
+                job.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                job.process.kill()
 
 
 _manager: JobManager | None = None
@@ -151,3 +186,10 @@ def get_manager(on_finish: Callable[[], None]) -> JobManager:
 def reset_manager() -> None:
     global _manager
     _manager = None
+
+
+def shutdown_manager() -> None:
+    global _manager
+    if _manager is not None:
+        _manager.shutdown()
+        _manager = None

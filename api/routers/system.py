@@ -8,6 +8,7 @@ import platform
 import sys
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from PIL import Image
 from pydantic import BaseModel
 
@@ -25,6 +26,10 @@ class PromoteRequest(BaseModel):
     run_id: str
 
 
+class SyncRequest(BaseModel):
+    registry_names: list[str] | None = None
+
+
 @router.get("/health")
 def health(state: AppState = Depends(get_state)) -> dict:
     info = state.predictor.info()
@@ -36,7 +41,25 @@ def health(state: AppState = Depends(get_state)) -> dict:
         "device_name": info["device_name"],
         "segmentation_ready": info["segmentation_ready"],
         "classification_ready": info["classification_ready"],
+        "database_ok": state.store.ping(),
+        "auth_required": state.settings.auth_required,
     }
+
+
+@router.get("/ready")
+def ready(state: AppState = Depends(get_state)) -> JSONResponse:
+    """Readiness probe: the ledger must answer and both models must be loaded."""
+    info = state.predictor.info()
+    database_ok = state.store.ping()
+    models_ready = bool(info["segmentation_ready"] and info["classification_ready"])
+    payload = {
+        "status": "ready" if database_ok and models_ready else "not_ready",
+        "database_ok": database_ok,
+        "models_ready": models_ready,
+        "segmentation_ready": info["segmentation_ready"],
+        "classification_ready": info["classification_ready"],
+    }
+    return JSONResponse(status_code=200 if database_ok and models_ready else 503, content=payload)
 
 
 @router.get("/system")
@@ -84,6 +107,19 @@ def refresh_models(state: AppState = Depends(get_state)) -> dict:
     return state.predictor.info()
 
 
+@router.post("/models/sync")
+def sync_models(payload: SyncRequest | None = None, state: AppState = Depends(get_state)) -> dict:
+    """Download champion checkpoints from the MLflow registry into the model dir."""
+    result = tracking.sync_champions(
+        state.settings.model_dir,
+        payload.registry_names if payload else None,
+    )
+    state.predictor.refresh()
+    state.references.update(find_reference_stats())
+    refresh_model_gauges(state.predictor)
+    return {**result, "models": state.predictor.info()["models"]}
+
+
 @router.post("/models/promote")
 def promote_model(payload: PromoteRequest) -> dict:
     try:
@@ -96,6 +132,7 @@ def promote_model(payload: PromoteRequest) -> dict:
 def champion(registry_name: str) -> dict:
     import mlflow
 
+    tracking.ensure_tracking()
     client = mlflow.MlflowClient()
     try:
         version = client.get_model_version_by_alias(registry_name, "champion")

@@ -6,6 +6,19 @@ export type Health = {
   device_name: string;
   segmentation_ready: boolean;
   classification_ready: boolean;
+  database_ok?: boolean;
+  auth_required?: boolean;
+};
+
+export type StorageStats = {
+  path: string;
+  size_bytes: number;
+  predictions: number;
+  feedback: number;
+  oldest_ts: number | null;
+  newest_ts: number | null;
+  journal_mode: string;
+  wal: boolean;
 };
 
 export type ModelInfo = {
@@ -186,8 +199,39 @@ export type SystemInfo = {
   uptime_s: number;
 };
 
+export const AUTH_EVENT = "medmlops:auth-required";
+const API_KEY_STORAGE = "medmlops_api_key";
+
+export function getApiKey(): string {
+  try {
+    return window.localStorage.getItem(API_KEY_STORAGE) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function setApiKey(key: string): void {
+  try {
+    const value = key.trim();
+    if (value) window.localStorage.setItem(API_KEY_STORAGE, value);
+    else window.localStorage.removeItem(API_KEY_STORAGE);
+  } catch {
+    /* storage disabled */
+  }
+}
+
+function authHeaders(base?: HeadersInit): Headers {
+  const headers = new Headers(base);
+  const key = getApiKey();
+  if (key) headers.set("X-API-Key", key);
+  return headers;
+}
+
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  const response = await fetch(input, { ...init, headers: authHeaders(init?.headers) });
+  if (response.status === 401) {
+    window.dispatchEvent(new CustomEvent(AUTH_EVENT));
+  }
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try {
@@ -212,11 +256,21 @@ export const api = {
   system: () => request<SystemInfo>("/api/system"),
   models: () => request<ModelsResponse>("/api/models"),
   refreshModels: () => request<ModelsResponse>("/api/models/refresh", { method: "POST" }),
+  syncModels: (registryNames?: string[]) =>
+    request<{ downloaded: { registry_name: string; version: string }[]; errors: { registry_name: string; error: string }[]; models: ModelInfo[] }>(
+      "/api/models/sync",
+      registryNames ? jsonInit({ registry_names: registryNames }) : { method: "POST" },
+    ),
   promote: (registry_name: string, run_id: string) =>
     request<{ name: string; version: string }>("/api/models/promote", jsonInit({ registry_name, run_id })),
   experiments: (limit = 30) => request<{ runs: RunSummary[] }>(`/api/experiments?limit=${limit}`),
   run: (runId: string) => request<RunDetail>(`/api/experiments/${runId}`),
   monitoring: () => request<MonitoringSummary>("/api/monitoring/summary"),
+  storage: () => request<StorageStats>("/api/monitoring/storage"),
+  prune: (days: number) => request<{ removed_predictions: number; removed_feedback: number }>(
+    `/api/monitoring/prune?days=${days}`,
+    { method: "POST" },
+  ),
   feedback: (prediction_id: string, verdict: string) =>
     request<{ status: string }>("/api/feedback", jsonInit({ prediction_id, verdict })),
   demo: (task: string) => request<DemoCase>(`/api/demo/${task}`),

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Health, type ModelsResponse, type SystemInfo } from "./api";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { api, AUTH_EVENT, getApiKey, setApiKey, type Health, type ModelsResponse, type SystemInfo } from "./api";
 import Analyzer from "./components/Analyzer";
 import ExperimentsPanel from "./components/ExperimentsPanel";
 import Header, { type Tab } from "./components/Header";
@@ -23,6 +23,8 @@ export default function App() {
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [monitorSignal, setMonitorSignal] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [authPrompt, setAuthPrompt] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
   const toastSeq = useRef(0);
   const syncedReadiness = useRef("");
 
@@ -99,6 +101,23 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
+  useEffect(() => {
+    const onAuth = () => setAuthPrompt(true);
+    window.addEventListener(AUTH_EVENT, onAuth);
+    return () => window.removeEventListener(AUTH_EVENT, onAuth);
+  }, []);
+
+  const unlock = (event: FormEvent) => {
+    event.preventDefault();
+    setApiKey(keyInput);
+    setAuthPrompt(false);
+    setKeyInput("");
+    void checkHealth();
+    void loadModels();
+    void loadSystem();
+    notify(getApiKey() ? "API key saved" : "API key cleared");
+  };
+
   const onPrediction = useCallback(() => {
     setMonitorSignal((value) => value + 1);
   }, []);
@@ -108,6 +127,27 @@ export default function App() {
       <Header tab={tab} onTab={changeTab} health={health} />
 
       <main className="app-main">
+        {authPrompt && (
+          <div className="banner warn auth-banner" role="alert">
+            <span>
+              This deployment requires an API key. Paste the value of <code>MEDMLOPS_API_KEY</code> to unlock the
+              console.
+            </span>
+            <form className="key-form" onSubmit={unlock}>
+              <input
+                type="password"
+                value={keyInput}
+                onChange={(event) => setKeyInput(event.target.value)}
+                placeholder="X-API-Key"
+                aria-label="API key"
+                autoFocus
+              />
+              <button type="submit" className="btn xs">
+                Unlock
+              </button>
+            </form>
+          </div>
+        )}
         {!reachable && (
           <div className="banner error offline" role="alert">
             <span>

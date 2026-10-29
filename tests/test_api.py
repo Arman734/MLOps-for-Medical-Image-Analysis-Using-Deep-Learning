@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from PIL import Image
 
 from api.app import create_app
 from api.services import AppState, Settings
+from medmlops import tracking
 from medmlops.checkpoint import new_meta, save_checkpoint
 from medmlops.data.common import build_reference_stats
 from medmlops.models import UNet, build_densenet
@@ -103,6 +105,12 @@ def test_health_and_system(app):
     assert health["status"] == "ok"
     assert health["segmentation_ready"] is True
     assert health["classification_ready"] is True
+    assert health["database_ok"] is True
+    assert health["auth_required"] is False
+
+    ready = app.get("/api/ready")
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "ready"
 
     system = app.get("/api/system").json()
     for key in ("python", "torch", "device", "tracking", "datasets", "uptime_s"):
@@ -120,6 +128,50 @@ def test_models_endpoint(app):
 
     refreshed = app.post("/api/models/refresh").json()
     assert len(refreshed["models"]) == 2
+
+
+def test_registry_sync_endpoint(app, monkeypatch):
+    calls: dict = {}
+
+    def fake_sync(dest_dir, names=None):
+        calls["dest"] = Path(dest_dir)
+        calls["names"] = names
+        return {"downloaded": [{"registry_name": "unit_unet"}], "errors": []}
+
+    monkeypatch.setattr(tracking, "sync_champions", fake_sync)
+    response = app.post("/api/models/sync", json={"registry_names": ["unit_unet"]})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["downloaded"][0]["registry_name"] == "unit_unet"
+    assert calls["names"] == ["unit_unet"]
+    assert calls["dest"] == app.app.state.services.settings.model_dir
+    assert {model["id"] for model in body["models"]} == {"unit_unet", "unit_densenet"}
+
+
+def test_api_key_guard(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDMLOPS_API_KEY", "s3cret-key")
+    application = create_app()
+    application.state.services = AppState(
+        settings=Settings(
+            model_dir=tmp_path / "models",
+            db_path=tmp_path / "monitor.db",
+            cors_origins=[],
+            max_upload_mb=2,
+            device="cpu",
+            api_key="s3cret-key",
+        ),
+        predictor=Predictor(tmp_path / "models", device="cpu"),
+        store=MonitoringStore(tmp_path / "monitor.db"),
+        references={},
+    )
+    with TestClient(application) as client:
+        assert client.get("/api/health").status_code == 200
+        assert client.get("/api/ready").status_code == 503
+        assert client.get("/api/system").status_code == 401
+        assert client.get("/api/system", headers={"X-API-Key": "wrong"}).status_code == 401
+        assert client.get("/api/system", headers={"X-API-Key": "s3cret-key"}).status_code == 200
+        assert client.get("/api/system", headers={"Authorization": "Bearer s3cret-key"}).status_code == 200
+        assert client.get("/api/system", headers={"Authorization": "Bearer nope"}).status_code == 401
 
 
 def test_prometheus_endpoint(app):
@@ -185,6 +237,15 @@ def test_feedback_flow(app, image_bytes):
     )
     assert bad.status_code == 400
 
+    missing = app.post("/api/feedback", json={"prediction_id": "nope", "verdict": "correct"})
+    assert missing.status_code == 404
+
+    detail = app.get(f"/api/predictions/{prediction['prediction_id']}")
+    assert detail.status_code == 200
+    assert detail.json()["id"] == prediction["prediction_id"]
+    assert detail.json()["feedback"][0]["verdict"] == "correct"
+    assert app.get("/api/predictions/nope").status_code == 404
+
 
 def test_monitoring_endpoints(app, image_bytes):
     app.post("/api/predict/segmentation", files={"file": ("case.png", image_bytes, "image/png")})
@@ -194,11 +255,26 @@ def test_monitoring_endpoints(app, image_bytes):
 
     drift = app.get("/api/monitoring/drift", params={"task": "segmentation", "window": 100}).json()
     assert drift["status"] in {"stable", "watch", "alert", "insufficient_data", "no_reference"}
+    assert app.get("/api/monitoring/drift", params={"task": "bogus"}).status_code == 400
+
+    storage = app.get("/api/monitoring/storage").json()
+    assert storage["wal"] is True
+    assert storage["predictions"] >= 1
+    assert app.post("/api/monitoring/prune", params={"days": 30}).status_code == 200
 
     export = app.get("/api/monitoring/export.csv")
     assert export.status_code == 200
     assert export.headers["content-type"].startswith("text/csv")
     assert export.text.splitlines()[0].startswith("id,timestamp,task")
+    assert "verdict" in export.text.splitlines()[0]
+
+    filtered = app.get("/api/monitoring/export.csv", params={"task": "segmentation"})
+    assert filtered.status_code == 200
+    assert 'filename="medmlops_predictions_segmentation.csv"' in filtered.headers["content-disposition"]
+    assert app.get("/api/monitoring/export.csv", params={"task": "bogus"}).status_code == 400
+
+    recent = app.get("/api/predictions/recent", params={"task": "bogus"})
+    assert recent.status_code == 400
 
 
 def test_pipeline_endpoints(app):

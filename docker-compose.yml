@@ -1,5 +1,8 @@
 name: medmlops
 
+# Values are read from the shell or the project .env file (Compose does this
+# automatically). MEDMLOPS_TRACKING_URI overrides the in-cluster MLflow URL;
+# keep it unset to use the bundled server.
 services:
   mlflow:
     build:
@@ -19,16 +22,28 @@ services:
     container_name: medmlops-api
     environment:
       MEDMLOPS_ROOT: /app
-      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_TRACKING_URI: ${MEDMLOPS_TRACKING_URI:-http://mlflow:5000}
       MEDMLOPS_MODEL_DIR: /app/artifacts/models
       MEDMLOPS_DB_PATH: /app/artifacts/monitoring.db
-      MEDMLOPS_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000
+      MEDMLOPS_DEVICE: ${MEDMLOPS_DEVICE:-cpu}
+      MEDMLOPS_MAX_UPLOAD_MB: ${MEDMLOPS_MAX_UPLOAD_MB:-15}
+      MEDMLOPS_API_KEY: ${MEDMLOPS_API_KEY:-}
+      MEDMLOPS_BOOTSTRAP_FROM_REGISTRY: ${MEDMLOPS_BOOTSTRAP_FROM_REGISTRY:-0}
+      MEDMLOPS_REGISTRY_NAMES: ${MEDMLOPS_REGISTRY_NAMES:-isic-lesion-unet,pneumonia-densenet}
+      MEDMLOPS_CORS_ORIGINS: ${MEDMLOPS_CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000}
+      DAGSHUB_USER_NAME: ${DAGSHUB_USER_NAME:-}
+      DAGSHUB_REPO_NAME: ${DAGSHUB_REPO_NAME:-}
+      DAGSHUB_USER_TOKEN: ${DAGSHUB_USER_TOKEN:-}
     ports:
       - "8000:8000"
     volumes:
+      # checkpoints + SQLite ledger survive container rebuilds
       - ./artifacts:/app/artifacts
+      # mounted so the console's Train button can read prepared data
+      - ./data:/app/data
     depends_on:
-      - mlflow
+      mlflow:
+        condition: service_healthy
     restart: unless-stopped
 
   web:
@@ -39,7 +54,8 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   prometheus:
@@ -52,15 +68,16 @@ services:
       - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   grafana:
     image: grafana/grafana:11.3.0
     container_name: medmlops-grafana
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: medmlops
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-medmlops}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
       - "3000:3000"

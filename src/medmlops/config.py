@@ -24,6 +24,23 @@ def _dotenv_values(path: Path) -> dict[str, str]:
     return values
 
 
+def load_env_defaults(path: Path | None = None) -> dict[str, str]:
+    """Expose .env entries as process-env defaults; real environment variables win.
+
+    MLflow reads its URI and token straight from ``os.environ``, so the custom
+    dotenv reader alone is not enough: without this the MLFLOW_* and DAGSHUB_*
+    keys documented in .env would be silently ignored.
+    """
+    values = _dotenv_values(path or PROJECT_ROOT / ".env")
+    for key, value in values.items():
+        if value and key not in os.environ:
+            os.environ[key] = value
+    return values
+
+
+load_env_defaults()
+
+
 class Env:
     """Tiny .env reader that does not override real environment variables."""
 

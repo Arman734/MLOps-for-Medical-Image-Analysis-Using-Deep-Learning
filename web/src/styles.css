@@ -825,6 +825,35 @@ select option {
   flex-wrap: wrap;
 }
 
+.banner.auth-banner {
+  margin: 0 0 18px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.key-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-form input {
+  min-width: 190px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(2, 8, 16, 0.55);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.key-form input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.18);
+}
+
 .banner svg {
   flex: none;
 }

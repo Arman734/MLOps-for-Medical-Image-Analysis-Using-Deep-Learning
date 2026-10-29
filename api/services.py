@@ -19,6 +19,18 @@ class Settings:
     cors_origins: list[str]
     max_upload_mb: int
     device: str
+    api_key: str = ""
+
+    @property
+    def auth_required(self) -> bool:
+        return bool(self.api_key)
+
+
+def _int_env(env: Env, key: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(env.get(key, str(default)) or default))
+    except (TypeError, ValueError):
+        return default
 
 
 def load_settings() -> Settings:
@@ -28,8 +40,9 @@ def load_settings() -> Settings:
         db_path=PROJECT_ROOT / (env.get("MEDMLOPS_DB_PATH", "artifacts/monitoring.db") or "artifacts/monitoring.db"),
         cors_origins=[o.strip() for o in (env.get("MEDMLOPS_CORS_ORIGINS", "") or "").split(",") if o.strip()]
         or ["http://localhost:5173", "http://127.0.0.1:5173"],
-        max_upload_mb=int(env.get("MEDMLOPS_MAX_UPLOAD_MB", "15") or 15),
+        max_upload_mb=_int_env(env, "MEDMLOPS_MAX_UPLOAD_MB", 15),
         device=env.get("MEDMLOPS_DEVICE", "auto") or "auto",
+        api_key=(env.get("MEDMLOPS_API_KEY", "") or "").strip(),
     )
 
 

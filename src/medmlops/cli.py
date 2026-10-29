@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 from .config import PROJECT_ROOT, load_config
@@ -79,16 +80,52 @@ def _cmd_registry(args) -> int:
     if args.action == "list":
         print(json.dumps(tracking.list_models(), indent=2))
         return 0
+    cfg = load_config(args.config)
+    tracking.init_tracking(cfg)
     if args.action == "promote":
-        cfg = load_config(args.config)
-        tracking.init_tracking(cfg, False)
         name, version = tracking.promote_run(cfg, args.run_id)
         print(f"promoted {name} version {version} to alias 'champion'")
         return 0
     if args.action == "champion":
-        print(json.dumps(tracking.get_champion(load_config(args.config)), indent=2, default=str))
+        print(json.dumps(tracking.get_champion(cfg), indent=2, default=str))
+        return 0
+    if args.action == "export":
+        registry_name = args.registry or str(cfg.mlflow.get("registry_model_name", cfg.experiment))
+        print(json.dumps(tracking.download_champion(registry_name, args.dest), indent=2))
+        return 0
+    if args.action == "sync":
+        print(json.dumps(tracking.sync_champions(args.dest), indent=2))
         return 0
     raise SystemExit(f"unknown registry action: {args.action}")
+
+
+def _cmd_db(args) -> int:
+    from .config import PROJECT_ROOT, Env
+    from .monitor import MonitoringStore
+
+    env = Env()
+    default_path = PROJECT_ROOT / (env.get("MEDMLOPS_DB_PATH", "artifacts/monitoring.db") or "artifacts/monitoring.db")
+    store = MonitoringStore(Path(args.db) if args.db else default_path)
+    try:
+        if args.action == "stats":
+            print(json.dumps(store.stats(), indent=2))
+        elif args.action == "prune":
+            print(json.dumps(store.prune(args.days), indent=2))
+        elif args.action == "export":
+            out = Path(args.out) if args.out else PROJECT_ROOT / "artifacts" / "monitoring_export.csv"
+            print(store.export_csv(out))
+        elif args.action == "backup":
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            if args.out and Path(args.out).suffix == ".db":
+                out = Path(args.out)
+            else:
+                out = Path(args.out or PROJECT_ROOT / "artifacts" / "backups") / f"monitoring-{stamp}.db"
+            print(store.backup(out))
+        else:  # pragma: no cover - argparse constrains this
+            raise SystemExit(f"unknown db action: {args.action}")
+    finally:
+        store.close()
+    return 0
 
 
 def _cmd_serve(args) -> int:
@@ -140,11 +177,20 @@ def build_parser() -> argparse.ArgumentParser:
     pred.add_argument("--no-tta", action="store_true")
     pred.set_defaults(func=_cmd_predict)
 
-    reg = sub.add_parser("registry", help="inspect / promote registered models")
-    reg.add_argument("action", choices=["list", "promote", "champion"])
+    reg = sub.add_parser("registry", help="inspect / promote / export registered models")
+    reg.add_argument("action", choices=["list", "promote", "champion", "export", "sync"])
     reg.add_argument("--config", default="configs/isic_unet.yaml")
     reg.add_argument("--run-id", default="")
+    reg.add_argument("--registry", default=None, help="registry model name (defaults to the config)")
+    reg.add_argument("--dest", default="artifacts/models", help="directory for exported champion checkpoints")
     reg.set_defaults(func=_cmd_registry)
+
+    db = sub.add_parser("db", help="inspect, export, prune or back up the prediction ledger")
+    db.add_argument("action", choices=["stats", "export", "prune", "backup"])
+    db.add_argument("--db", default=None, help="ledger path (defaults to MEDMLOPS_DB_PATH)")
+    db.add_argument("--out", default=None, help="output file (export) or directory/file (backup)")
+    db.add_argument("--days", type=int, default=30, help="retention window for prune")
+    db.set_defaults(func=_cmd_db)
 
     serve = sub.add_parser("serve", help="start the FastAPI + web console")
     serve.add_argument("--host", default="127.0.0.1")

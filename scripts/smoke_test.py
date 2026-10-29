@@ -1,7 +1,10 @@
 """End-to-end smoke test against a running MedMLOps API.
 
 Usage:
-    python scripts/smoke_test.py [--base-url http://127.0.0.1:8000]
+    python scripts/smoke_test.py [--base-url http://127.0.0.1:8000] [--api-key KEY]
+
+The API key defaults to ``MEDMLOPS_API_KEY`` from the environment (or .env), so
+the same script works against local and protected deployments.
 
 Exits non-zero when a required endpoint is unhealthy. Model-dependent checks
 are skipped (with a warning) when no checkpoint has been trained yet.
@@ -11,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import os
 import sys
 import time
 
@@ -41,10 +45,10 @@ def check(client: httpx.Client, path: str, *, required: bool = True, timeout: fl
     return None
 
 
-def predict(client: httpx.Client, task: str) -> None:
+def predict(client: httpx.Client, task: str) -> dict | None:
     demo = check(client, f"/api/demo/{task}")
     if demo is None:
-        return
+        return None
     payload = demo.json()
     image = base64.b64decode(payload["image_base64"])
     fields = {"tta": "true"} if task == "segmentation" else {"explain": "true"}
@@ -58,16 +62,16 @@ def predict(client: httpx.Client, task: str) -> None:
         )
     except httpx.HTTPError as exc:
         record(FAIL, f"POST /api/predict/{task}", f"request failed: {exc}")
-        return
+        return None
     elapsed = time.perf_counter() - started
     if response.status_code != 200:
         record(FAIL, f"POST /api/predict/{task}", f"HTTP {response.status_code}: {response.text[:200]}")
-        return
+        return None
     body = response.json()
     if task == "segmentation":
         if not body.get("overlay_base64"):
             record(FAIL, "segmentation overlay", "missing overlay_base64")
-            return
+            return None
         detail = f"lesion_fraction={body['lesion_fraction']:.4f} latency={body['latency_ms']:.1f}ms wall={elapsed:.2f}s"
     else:
         detail = f"{body['predicted_label']} p={body['confidence']:.3f} latency={body['latency_ms']:.1f}ms wall={elapsed:.2f}s"
@@ -80,22 +84,59 @@ def predict(client: httpx.Client, task: str) -> None:
     )
     record(PASS if feedback.status_code == 200 else FAIL, "POST /api/feedback", f"HTTP {feedback.status_code}")
 
+    detail_response = client.get(f"/api/predictions/{body['prediction_id']}", timeout=30.0)
+    if detail_response.status_code == 200:
+        record(PASS, "GET /api/predictions/{id}", "ledger row + feedback")
+    else:
+        record(FAIL, "GET /api/predictions/{id}", f"HTTP {detail_response.status_code}")
+    return body
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--api-key", default=os.environ.get("MEDMLOPS_API_KEY", ""))
     args = parser.parse_args()
 
-    with httpx.Client(base_url=args.base_url, follow_redirects=True) as client:
+    headers = {"X-API-Key": args.api_key} if args.api_key else {}
+    with httpx.Client(base_url=args.base_url, follow_redirects=True, headers=headers) as client:
         health = check(client, "/api/health")
         ready: dict = {}
         if health is not None:
             ready = health.json()
+            record(
+                PASS if ready.get("database_ok") else FAIL,
+                "health.database_ok",
+                "SQLite ledger reachable" if ready.get("database_ok") else "ledger ping failed",
+            )
+        probe = client.get("/api/ready", timeout=30.0)
+        if probe.status_code == 200:
+            record(PASS, "/api/ready", probe.json().get("status", ""))
+        elif probe.status_code == 503:
+            record(WARN, "/api/ready", "models or ledger not ready yet")
+        else:
+            record(FAIL, "/api/ready", f"HTTP {probe.status_code}")
         check(client, "/api/system")
         models = check(client, "/api/models")
         check(client, "/api/pipeline/configs")
         check(client, "/api/experiments", required=False)
         check(client, "/api/monitoring/summary")
+        storage = check(client, "/api/monitoring/storage")
+        if storage is not None:
+            info = storage.json()
+            record(
+                PASS if info.get("wal") else WARN,
+                "ledger WAL",
+                f"{info.get('predictions', 0)} predictions · {info.get('size_bytes', 0)} bytes",
+            )
+        export = check(client, "/api/monitoring/export.csv")
+        if export is not None:
+            header = export.text.splitlines()[0] if export.text else ""
+            record(
+                PASS if "verdict" in header else FAIL,
+                "export.csv schema",
+                header[:80],
+            )
         metrics = check(client, "/metrics")
         if metrics is not None and "medmlops_api_requests_total" not in metrics.text:
             record(FAIL, "/metrics content", "missing medmlops_api_requests_total")

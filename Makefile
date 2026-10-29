@@ -18,7 +18,8 @@ RUFF := $(PYTHON) -m ruff
 
 .PHONY: help venv install download data train train-seg train-clf evaluate \
         serve api web-install web-build dev test lint repro mlflow docker-build \
-        docker-up docker-down docker-logs smoke
+        docker-up docker-down docker-logs docker-config smoke db-stats db-backup \
+        sync-models export-champion
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -74,11 +75,14 @@ lint: ## Lint with ruff
 repro: ## Reproduce the whole DVC pipeline
 	PATH="$(CURDIR)/.venv/Scripts:$(CURDIR)/.venv/bin:$$PATH" $(DVC) repro
 
-mlflow: ## Serve the local MLflow UI on :5000
-	$(MLFLOW) server --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlartifacts --host 127.0.0.1 --port 5000
+mlflow: ## Serve the local MLflow UI on :5000 (artifact proxying enabled)
+	$(MLFLOW) server --backend-store-uri sqlite:///mlflow.db --artifacts-destination ./mlartifacts --serve-artifacts --host 127.0.0.1 --port 5000
 
 docker-build: ## Build the API and web images
 	docker compose build
+
+docker-config: ## Validate docker-compose.yml without building
+	docker compose config -q
 
 docker-up: ## Start api, web, mlflow, prometheus and grafana
 	docker compose up -d
@@ -91,3 +95,15 @@ docker-logs: ## Tail compose logs
 
 smoke: ## Run a fast end-to-end smoke test against the local API
 	$(PYTHON) scripts/smoke_test.py
+
+db-stats: ## Show prediction-ledger size, rows and journal mode
+	$(MEDMLOPS) db stats
+
+db-backup: ## Write a consistent online copy of the SQLite ledger
+	$(MEDMLOPS) db backup
+
+sync-models: ## Download champion checkpoints from the MLflow registry
+	$(MEDMLOPS) registry sync
+
+export-champion: ## Export the U-Net champion checkpoint (edit --registry for DenseNet)
+	$(MEDMLOPS) registry export --config configs/isic_unet.yaml

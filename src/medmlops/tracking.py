@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,28 @@ def _resolve_uri(uri: str) -> str:
             path = PROJECT_ROOT / path
         return f"sqlite:///{path.as_posix()}"
     return uri
+
+
+def _local_artifact_root() -> str:
+    raw = os.environ.get("MLFLOW_ARTIFACT_ROOT") or "mlartifacts"
+    path = Path(raw)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return str(path.resolve())
+
+
+def experiment_artifact_location(tracking_uri: str, dagshub_enabled: bool = False) -> str | None:
+    """Where a new experiment should store artifacts.
+
+    Local SQLite/file stores need an explicit directory. Remote servers and
+    DagsHub own their artifact store: passing a client-side path there makes
+    uploads fail (the server cannot see the client filesystem).
+    """
+    if dagshub_enabled:
+        return None
+    if tracking_uri.startswith(("sqlite:", "file:")):
+        return _local_artifact_root()
+    return None
 
 
 def use_dagshub(cfg, dagshub: bool | None = None) -> bool:
@@ -60,13 +83,8 @@ def init_tracking(cfg, dagshub: bool | None = None) -> str:
     """Point MLflow at the configured backend and activate the experiment."""
     import mlflow
 
-    resolved = _resolve_uri(os.environ.get("MLFLOW_TRACKING_URI") or "sqlite:///mlflow.db")
-    os.environ["MLFLOW_TRACKING_URI"] = resolved
-    os.environ["_MEDMLOPS_URI_READY"] = "1"
-    mlflow.set_tracking_uri(resolved)
-    os.environ.setdefault("MLFLOW_ARTIFACT_ROOT", str(PROJECT_ROOT / "mlartifacts"))
-
-    if use_dagshub(cfg, dagshub):
+    use_dagshub_backend = use_dagshub(cfg, dagshub)
+    if use_dagshub_backend:
         env = Env()
         owner = env.get("DAGSHUB_USER_NAME")
         repo = env.get("DAGSHUB_REPO_NAME")
@@ -76,17 +94,28 @@ def init_tracking(cfg, dagshub: bool | None = None) -> str:
                 "DagsHub tracking requested but DAGSHUB_USER_NAME / DAGSHUB_REPO_NAME / "
                 "DAGSHUB_USER_TOKEN are not set (see .env.example)"
             )
-        os.environ.setdefault("DAGSHUB_USER_TOKEN", token)
+        os.environ["DAGSHUB_USER_TOKEN"] = token
         import dagshub
 
         dagshub.init(repo_owner=owner, repo_name=repo, mlflow=True)
-        mlflow.set_tracking_uri(dagshub.get_mlflow_tracking_uri(owner, repo))
+        resolved = mlflow.get_tracking_uri()
+    else:
+        resolved = _resolve_uri(os.environ.get("MLFLOW_TRACKING_URI") or "sqlite:///mlflow.db")
+        mlflow.set_tracking_uri(resolved)
+
+    os.environ["MLFLOW_TRACKING_URI"] = resolved
+    os.environ["_MEDMLOPS_URI_READY"] = "1"
+    artifact_location = experiment_artifact_location(resolved, use_dagshub_backend)
+    if artifact_location:
+        os.environ.setdefault("MLFLOW_ARTIFACT_ROOT", artifact_location)
 
     experiment_name = str(cfg.experiment)
     existing = mlflow.get_experiment_by_name(experiment_name)
     if existing is None:
-        artifact_root = os.environ.get("MLFLOW_ARTIFACT_ROOT")
-        mlflow.create_experiment(experiment_name, artifact_location=artifact_root)
+        if artifact_location:
+            mlflow.create_experiment(experiment_name, artifact_location=artifact_location)
+        else:
+            mlflow.create_experiment(experiment_name)
     mlflow.set_experiment(experiment_name)
     return mlflow.get_tracking_uri()
 
@@ -407,10 +436,12 @@ def tracking_info() -> dict:
     ensure_tracking()
 
     uri = mlflow.get_tracking_uri()
+    local = uri.startswith(("sqlite:", "file:"))
     return {
         "tracking_uri": uri,
-        "backend": "dagshub" if "dagshub" in uri else "local",
-        "ui_url": None if uri.startswith("sqlite") else uri,
+        "backend": "dagshub" if "dagshub" in uri else ("local" if local else "server"),
+        "ui_url": None if local else uri,
+        "artifact_root": _local_artifact_root() if local else None,
         "experiments": experiment_names(),
     }
 
@@ -424,3 +455,57 @@ def log_artifact_tree(directory: str | Path, artifact_path: str) -> None:
 def save_run_summary(run_id: str, path: Path) -> None:
     with path.open("w", encoding="utf-8") as fh:
         json.dump({"run_id": run_id}, fh, indent=2)
+
+
+def registry_names() -> list[str]:
+    """Registry names that a deployment should mirror (env overridable)."""
+    raw = Env().get("MEDMLOPS_REGISTRY_NAMES") or "isic-lesion-unet,pneumonia-densenet"
+    return [name.strip() for name in raw.split(",") if name.strip()]
+
+
+def download_champion(registry_name: str, dest_dir: str | Path) -> dict:
+    """Copy the champion run's checkpoint + metadata out of MLflow into a model dir.
+
+    Training logs ``checkpoints/*.pt`` and ``*.json`` as run artifacts, so a
+    fresh deployment can bootstrap serving state straight from the registry
+    (local SQLite, an MLflow server or DagsHub) without retraining.
+    """
+    import mlflow
+
+    ensure_tracking()
+    client = mlflow.MlflowClient()
+    version = client.get_model_version_by_alias(registry_name, "champion")
+    artifact_dir = Path(mlflow.artifacts.download_artifacts(run_id=version.run_id, artifact_path="checkpoints"))
+    checkpoints = sorted(artifact_dir.glob("*.pt"))
+    if not checkpoints:
+        raise LookupError(f"run {version.run_id} has no checkpoint artifact for '{registry_name}'")
+    source = checkpoints[0]
+    sidecar = source.with_suffix(".json")
+    if not sidecar.exists():
+        raise LookupError(f"checkpoint {source.name} has no metadata sidecar")
+
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    safe = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in registry_name)
+    target = dest_dir / f"{safe}.pt"
+    shutil.copy2(source, target)
+    shutil.copy2(sidecar, target.with_suffix(".json"))
+    return {
+        "registry_name": registry_name,
+        "version": version.version,
+        "run_id": version.run_id,
+        "checkpoint": str(target),
+        "metadata": str(target.with_suffix(".json")),
+    }
+
+
+def sync_champions(dest_dir: str | Path, names: list[str] | None = None) -> dict:
+    """Mirror every available champion into the serving directory (best effort)."""
+    downloaded: list[dict] = []
+    errors: list[dict] = []
+    for name in names or registry_names():
+        try:
+            downloaded.append(download_champion(name, dest_dir))
+        except Exception as exc:  # registry may be empty or unreachable
+            errors.append({"registry_name": name, "error": str(exc)})
+    return {"downloaded": downloaded, "errors": errors}
