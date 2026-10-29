@@ -92,7 +92,7 @@ api/                  FastAPI app, routers, background jobs, Prometheus, auth gu
 web/                  React 18 + Vite + TypeScript console
 docker/               Dockerfiles, nginx, Prometheus + Grafana provisioning
 dvc.yaml              Reproducible pipeline
-tests/                Unit, integration and API contract tests (60 tests)
+tests/                Unit, integration and API contract tests (61 tests)
 scripts/smoke_test.py Live end-to-end verification
 docs/                 Runbook + model-card notes
 ```
@@ -149,7 +149,7 @@ docker compose up --build
 ### Verify everything
 
 ```bash
-make test                    # pytest (60 tests, CPU-only, tiny checkpoints)
+make test                    # pytest (61 tests, CPU-only, tiny checkpoints)
 make lint                    # ruff
 python scripts/smoke_test.py # live inference, ledger, export, readiness
 make db-stats                # ledger rows, size, WAL mode
@@ -443,7 +443,7 @@ Operational playbooks: [docs/runbook.md](docs/runbook.md). Metric names:
 ## Testing & reproducibility
 
 ```bash
-make test        # 60 tests: config, models, metrics, drift, transforms, explainability, API, tracking
+make test        # 61 tests: config, models, metrics, drift, transforms, explainability, API, tracking
 make lint        # ruff (E, F, I, UP, B)
 make smoke       # live end-to-end smoke test
 ```
