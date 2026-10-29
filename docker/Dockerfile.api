@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1
+# ---------- stage 1: build the React console ----------
+FROM node:20-slim AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-fund --no-audit
+COPY web/ ./
+RUN npm run build
+
+# ---------- stage 2: CPU inference API + bundled console ----------
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    MEDMLOPS_ROOT=/app
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY api ./api
+COPY configs ./configs
+
+RUN pip install --upgrade pip \
+    && pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision \
+    && pip install .
+
+COPY --from=web /web/dist ./web/dist
+
+ENV MLFLOW_TRACKING_URI=sqlite:////app/mlflow.db \
+    MEDMLOPS_MODEL_DIR=/app/artifacts/models \
+    MEDMLOPS_DB_PATH=/app/artifacts/monitoring.db
+
+VOLUME ["/app/artifacts"]
+EXPOSE 8000
+
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]

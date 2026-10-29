@@ -1,0 +1,45 @@
+experiment: isic2018-unet-segmentation
+run_name: null
+task: segmentation
+seed: 42
+
+data:
+  name: isic2018
+  source: hf                      # hf (fast mirror) | official (~11 GB archive)
+  raw_root: data/raw
+  processed_root: data/processed
+  image_size: 256
+  val_fraction: 0.15
+  test_fraction: 0.15
+  num_workers: 0
+  max_samples: null              # set an int for quick smoke runs
+
+model:
+  arch: unet
+  in_channels: 3
+  out_channels: 1
+  base_channels: 32
+  depth: 4
+  dropout: 0.15
+
+training:
+  epochs: 30
+  batch_size: 16
+  lr: 0.0003
+  weight_decay: 0.0001
+  amp: true
+  patience: 8
+  grad_clip: 1.0
+  loss: dice_bce
+  dice_weight: 1.0
+  bce_weight: 0.5
+  pos_weight: 2.0
+  log_every_n_steps: 20
+
+output:
+  model_dir: artifacts/models
+  name: isic_unet.pt
+
+mlflow:
+  registry_model_name: isic-lesion-unet
+  log_model: true

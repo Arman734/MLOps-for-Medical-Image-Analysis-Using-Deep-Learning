@@ -1,0 +1,76 @@
+name: Retrain models
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which model(s) to retrain
+        type: choice
+        options: [both, segmentation, classification]
+        default: both
+      epochs:
+        description: Epoch override (keep small on CPU runners)
+        type: number
+        default: 2
+  schedule:
+    # Weekly refresh every Sunday at 03:00 UTC
+    - cron: "0 3 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DAGSHUB_USER_NAME: ${{ secrets.DAGSHUB_USER_NAME }}
+      DAGSHUB_REPO_NAME: ${{ secrets.DAGSHUB_REPO_NAME }}
+      DAGSHUB_USER_TOKEN: ${{ secrets.DAGSHUB_USER_TOKEN }}
+      MEDMLOPS_TRACKER: ${{ secrets.DAGSHUB_USER_TOKEN != '' && 'dagshub' || 'local' }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          pip install -e ".[dev,dagshub]"
+
+      - name: Prepare ISIC 2018
+        if: inputs.target != 'classification'
+        run: medmlops data prepare --config configs/isic_unet.yaml
+
+      - name: Prepare PneumoniaMNIST
+        if: inputs.target != 'segmentation'
+        run: medmlops data prepare --config configs/pneumonia_densenet.yaml
+
+      - name: Train U-Net
+        if: inputs.target != 'classification'
+        run: medmlops train --config configs/isic_unet.yaml --set training.epochs=${{ inputs.epochs || 2 }}
+
+      - name: Train DenseNet-121
+        if: inputs.target != 'segmentation'
+        run: medmlops train --config configs/pneumonia_densenet.yaml --set training.epochs=${{ inputs.epochs || 2 }}
+
+      - name: Score test split
+        run: |
+          medmlops evaluate --config configs/isic_unet.yaml --split test || true
+          medmlops evaluate --config configs/pneumonia_densenet.yaml --split test || true
+
+      - name: Upload checkpoints, metrics and plots
+        uses: actions/upload-artifact@v4
+        with:
+          name: medmlops-run-${{ github.run_id }}
+          path: |
+            artifacts/models/*.pt
+            artifacts/models/*.json
+            artifacts/figures/*.png
+            metrics/*.json
+          retention-days: 30

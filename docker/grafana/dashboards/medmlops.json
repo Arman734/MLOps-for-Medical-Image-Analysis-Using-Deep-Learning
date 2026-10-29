@@ -1,0 +1,69 @@
+{
+  "uid": "medmlops-overview",
+  "title": "MedMLOps · Serving overview",
+  "tags": ["medmlops", "clinical"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Requests / min",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(medmlops_api_requests_total[5m]))", "legendFormat": "api", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Model ready",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "targets": [
+        { "expr": "medmlops_model_ready", "legendFormat": "{{task}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Predictions (1h)",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (task) (increase(medmlops_predictions_total[1h]))", "legendFormat": "{{task}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Inference p95",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3 }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, task) (rate(medmlops_prediction_duration_seconds_bucket[5m])))", "legendFormat": "{{task}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API request latency (p50 / p95)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum by (le) (rate(medmlops_api_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(medmlops_api_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Predictions by label",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (task, label) (rate(medmlops_predictions_total[5m]))", "legendFormat": "{{task}} · {{label}}", "refId": "A" }
+      ]
+    }
+  ]
+}

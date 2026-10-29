@@ -1,0 +1,42 @@
+{
+  "test_accuracy": 0.9615384615384616,
+  "test_f1_macro": 0.9586846170823218,
+  "test_precision_macro": 0.9622003824431894,
+  "test_recall_macro": 0.9555555555555555,
+  "test_ece": 0.03556517521158246,
+  "test_auc": 0.9836730221345606,
+  "test_log_loss": 0.13771332800388336,
+  "test_sensitivity": 0.9794871794871794,
+  "test_specificity": 0.9316239316239316,
+  "test_ppv": 0.9597989949748744,
+  "test_npv": 0.9646017699115044,
+  "val_accuracy": 0.9847328244274809,
+  "val_f1_macro": 0.9804167055965617,
+  "val_precision_macro": 0.9720279720279721,
+  "val_recall_macro": 0.9897172236503856,
+  "val_ece": 0.02600667312855024,
+  "val_auc": 0.9981529086927544,
+  "val_log_loss": 0.06676559895277023,
+  "val_sensitivity": 0.9794344473007712,
+  "val_specificity": 1.0,
+  "val_ppv": 1.0,
+  "val_npv": 0.9440559440559441,
+  "test_confusion_matrix": [
+    [
+      218,
+      16
+    ],
+    [
+      8,
+      382
+    ]
+  ],
+  "class_names": [
+    "normal",
+    "pneumonia"
+  ],
+  "epochs_trained": 6.0,
+  "best_epoch": 2.0,
+  "train_seconds": 556.2656331062317,
+  "parameters": 6955906.0
+}

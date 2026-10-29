@@ -1,0 +1,78 @@
+name: medmlops
+
+services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mlflow
+    container_name: medmlops-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: medmlops-api
+    environment:
+      MEDMLOPS_ROOT: /app
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MEDMLOPS_MODEL_DIR: /app/artifacts/models
+      MEDMLOPS_DB_PATH: /app/artifacts/monitoring.db
+      MEDMLOPS_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./artifacts:/app/artifacts
+    depends_on:
+      - mlflow
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    container_name: medmlops-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: medmlops-prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: medmlops-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: medmlops
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  mlflow-data:
+  prometheus-data:
+  grafana-data:

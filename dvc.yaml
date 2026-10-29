@@ -1,0 +1,95 @@
+# Reproducible DAG: download → prepare → train → evaluate
+# Run with `dvc repro` (or `make repro`). Stages are cached by content hash.
+stages:
+  download_segmentation:
+    desc: Fetch the ISIC 2018 segmentation mirror (images + ground truth).
+    cmd: medmlops data download --config configs/isic_unet.yaml
+    deps:
+      - configs/isic_unet.yaml
+      - src/medmlops/data/isic.py
+    outs:
+      - data/raw/isic2018
+
+  prepare_segmentation:
+    desc: Resize to 256x256, create deterministic splits, npz bundles and drift baseline.
+    cmd: medmlops data prepare --config configs/isic_unet.yaml
+    deps:
+      - configs/isic_unet.yaml
+      - data/raw/isic2018
+      - src/medmlops/data/isic.py
+      - src/medmlops/data/common.py
+      - src/medmlops/data/transforms.py
+    outs:
+      - data/processed/isic2018
+
+  prepare_classification:
+    desc: Download PneumoniaMNIST and record class balance + drift baseline.
+    cmd: medmlops data prepare --config configs/pneumonia_densenet.yaml
+    deps:
+      - configs/pneumonia_densenet.yaml
+      - src/medmlops/data/medmnist.py
+      - src/medmlops/data/common.py
+    outs:
+      - data/processed/medmnist/pneumoniamnist_224
+
+  train_segmentation:
+    desc: Train the U-Net, log to MLflow, register the model and promote the champion.
+    cmd: medmlops train --config configs/isic_unet.yaml
+    deps:
+      - configs/isic_unet.yaml
+      - data/processed/isic2018
+      - src/medmlops/train.py
+      - src/medmlops/models
+      - src/medmlops/metrics.py
+      - src/medmlops/tracking.py
+      - src/medmlops/report.py
+      - src/medmlops/plots.py
+    outs:
+      - artifacts/models/isic_unet.pt
+      - artifacts/models/isic_unet.json
+    metrics:
+      - metrics/isic2018-unet-segmentation.json:
+          cache: false
+
+  train_classification:
+    desc: Fine-tune DenseNet-121 on PneumoniaMNIST with Grad-CAM + calibration metrics.
+    cmd: medmlops train --config configs/pneumonia_densenet.yaml
+    deps:
+      - configs/pneumonia_densenet.yaml
+      - data/processed/medmnist/pneumoniamnist_224
+      - src/medmlops/train.py
+      - src/medmlops/models
+      - src/medmlops/metrics.py
+      - src/medmlops/tracking.py
+      - src/medmlops/report.py
+      - src/medmlops/plots.py
+    outs:
+      - artifacts/models/pneumonia_densenet.pt
+      - artifacts/models/pneumonia_densenet.json
+    metrics:
+      - metrics/medmnist-pneumonia-densenet.json:
+          cache: false
+
+  evaluate_segmentation:
+    desc: Score the segmentation checkpoint on the held-out test split.
+    cmd: medmlops evaluate --config configs/isic_unet.yaml --split test
+    deps:
+      - configs/isic_unet.yaml
+      - artifacts/models/isic_unet.pt
+      - data/processed/isic2018
+      - src/medmlops/evaluate.py
+    metrics:
+      - metrics/eval_isic2018-unet-segmentation_test.json:
+          cache: false
+
+  evaluate_classification:
+    desc: Score the classification checkpoint on the held-out test split.
+    cmd: medmlops evaluate --config configs/pneumonia_densenet.yaml --split test
+    deps:
+      - configs/pneumonia_densenet.yaml
+      - artifacts/models/pneumonia_densenet.pt
+      - data/processed/medmnist/pneumoniamnist_224
+      - src/medmlops/evaluate.py
+    metrics:
+      - metrics/eval_medmnist-pneumonia-densenet_test.json:
+          cache: false

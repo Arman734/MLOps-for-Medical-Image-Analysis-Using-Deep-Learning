@@ -1,0 +1,39 @@
+experiment: medmnist-pneumonia-densenet
+run_name: null
+task: classification
+seed: 42
+
+data:
+  name: pneumoniamnist
+  raw_root: data/raw
+  processed_root: data/processed
+  image_size: 224
+  download: true
+  num_workers: 0
+  max_samples: null
+
+model:
+  arch: densenet121
+  pretrained: true
+  freeze_backbone: false
+  dropout: 0.2
+  num_classes: 2
+
+training:
+  epochs: 10
+  batch_size: 32
+  lr: 0.0003
+  weight_decay: 0.0001
+  amp: true
+  patience: 4
+  grad_clip: 1.0
+  label_smoothing: 0.05
+  log_every_n_steps: 20
+
+output:
+  model_dir: artifacts/models
+  name: pneumonia_densenet.pt
+
+mlflow:
+  registry_model_name: pneumonia-densenet
+  log_model: true

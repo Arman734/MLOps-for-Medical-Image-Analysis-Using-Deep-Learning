@@ -1,0 +1,43 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Data & artifacts
+data/raw/
+data/processed/
+artifacts/
+models/
+notebooks/.ipynb_checkpoints/
+
+# MLflow / DVC
+mlruns/
+mlartifacts/
+mlflow.db
+.dvc/tmp/
+.dvc/cache/
+.dvc/config.local
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Env & secrets
+.env
+.env.local
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
