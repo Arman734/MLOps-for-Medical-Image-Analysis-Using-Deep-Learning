@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import types
 
 import pytest
@@ -12,6 +13,11 @@ from medmlops import tracking
 class _EmptyEnv:
     def get(self, key, default=None):
         return default
+
+
+class _OsEnv:
+    def get(self, key, default=None):
+        return os.environ.get(key, default)
 
 
 def test_artifact_location_follows_backend(monkeypatch, tmp_path):
@@ -36,6 +42,23 @@ def test_dagshub_requires_credentials(monkeypatch):
     cfg = types.SimpleNamespace(experiment="unit")
     with pytest.raises(RuntimeError, match="DAGSHUB_USER_NAME"):
         tracking.init_tracking(cfg, dagshub=True)
+
+
+def test_dagshub_uri_gets_basic_auth(monkeypatch):
+    monkeypatch.setattr(tracking, "Env", _OsEnv)
+    monkeypatch.delenv("MLFLOW_TRACKING_USERNAME", raising=False)
+    monkeypatch.delenv("MLFLOW_TRACKING_PASSWORD", raising=False)
+    monkeypatch.setenv("DAGSHUB_USER_NAME", "alice")
+    monkeypatch.setenv("DAGSHUB_USER_TOKEN", "token-123")
+
+    tracking._apply_remote_auth("https://dagshub.com/alice/medmlops.mlflow")
+    assert os.environ["MLFLOW_TRACKING_USERNAME"] == "alice"
+    assert os.environ["MLFLOW_TRACKING_PASSWORD"] == "token-123"
+
+    monkeypatch.delenv("MLFLOW_TRACKING_USERNAME")
+    monkeypatch.delenv("MLFLOW_TRACKING_PASSWORD")
+    tracking._apply_remote_auth("http://mlflow:5000")
+    assert "MLFLOW_TRACKING_USERNAME" not in os.environ
 
 
 def test_download_champion_copies_checkpoint(tmp_path, monkeypatch):

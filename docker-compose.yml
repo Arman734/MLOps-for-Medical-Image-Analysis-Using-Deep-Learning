@@ -34,6 +34,7 @@ services:
       DAGSHUB_USER_NAME: ${DAGSHUB_USER_NAME:-}
       DAGSHUB_REPO_NAME: ${DAGSHUB_REPO_NAME:-}
       DAGSHUB_USER_TOKEN: ${DAGSHUB_USER_TOKEN:-}
+      MEDMLOPS_TRACKER: ${MEDMLOPS_TRACKER:-local}
     ports:
       - "8000:8000"
     volumes:

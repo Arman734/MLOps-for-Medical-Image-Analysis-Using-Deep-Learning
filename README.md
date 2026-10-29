@@ -344,6 +344,8 @@ docker compose ps             # every service should be healthy
 - `api` waits for a healthy `mlflow`; `web`, `prometheus` wait for a healthy `api`.
 - Checkpoints and the ledger persist in `./artifacts`; prepared data is mounted read-only for the
   console’s **Train** action.
+- The API image bundles CPU PyTorch for inference. Console-launched retraining therefore runs on CPU
+  inside compose — use a GPU host, the CLI, or the **Retrain** workflow for heavy jobs.
 - The web container (nginx) proxies `/api`, `/docs`, `/redoc`, `/openapi.json` and `/metrics` to the
   API and serves the SPA for everything else.
 - Keep Grafana credentials out of source: `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`.
@@ -365,6 +367,10 @@ MEDMLOPS_REGISTRY_NAMES=isic-lesion-unet,pneumonia-densenet
 On startup the API downloads each champion’s `checkpoints/*.pt` + sidecar from the registry into
 `MEDMLOPS_MODEL_DIR`, refreshes predictors and Prometheus gauges. Readiness stays **503** until both
 models load, so a load balancer will not send traffic too early.
+
+For DagsHub URIs, `DAGSHUB_USER_NAME` / `DAGSHUB_USER_TOKEN` are reused as MLflow basic auth
+automatically; for any other protected server set `MLFLOW_TRACKING_USERNAME` /
+`MLFLOW_TRACKING_PASSWORD` explicitly.
 
 > Keep the SQLite ledger on a persistent volume (`MEDMLOPS_DB_PATH`) and back it up with
 > `medmlops db backup` or `POST /api/monitoring/prune` for retention.

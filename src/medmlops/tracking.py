@@ -54,12 +54,25 @@ def use_dagshub(cfg, dagshub: bool | None = None) -> bool:
     return (Env().get("MEDMLOPS_TRACKER", "local") or "local").strip().lower() == "dagshub"
 
 
+def _apply_remote_auth(uri: str) -> None:
+    """DagsHub-hosted MLflow expects HTTP basic auth: username + token."""
+    if "dagshub" not in uri:
+        return
+    env = Env()
+    username = env.get("MLFLOW_TRACKING_USERNAME") or env.get("DAGSHUB_USER_NAME")
+    password = env.get("MLFLOW_TRACKING_PASSWORD") or env.get("DAGSHUB_USER_TOKEN")
+    if username and password:
+        os.environ.setdefault("MLFLOW_TRACKING_USERNAME", username)
+        os.environ.setdefault("MLFLOW_TRACKING_PASSWORD", password)
+
+
 def ensure_tracking() -> str:
     """Resolve the tracking URI for read paths (API, CLI) without a training run."""
     import mlflow
 
     if os.environ.get("_MEDMLOPS_URI_READY") != "1":
         uri = _resolve_uri(os.environ.get("MLFLOW_TRACKING_URI") or "sqlite:///mlflow.db")
+        _apply_remote_auth(uri)
         os.environ["MLFLOW_TRACKING_URI"] = uri
         mlflow.set_tracking_uri(uri)
         os.environ["_MEDMLOPS_URI_READY"] = "1"
@@ -103,6 +116,7 @@ def init_tracking(cfg, dagshub: bool | None = None) -> str:
         resolved = _resolve_uri(os.environ.get("MLFLOW_TRACKING_URI") or "sqlite:///mlflow.db")
         mlflow.set_tracking_uri(resolved)
 
+    _apply_remote_auth(resolved)
     os.environ["MLFLOW_TRACKING_URI"] = resolved
     os.environ["_MEDMLOPS_URI_READY"] = "1"
     artifact_location = experiment_artifact_location(resolved, use_dagshub_backend)
