@@ -273,6 +273,10 @@ The GitHub Actions **Retrain models** workflow also requires repository secrets
 logs training and evaluation to DagsHub MLflow, and commits updated `dvc.lock` metadata. The
 optional `HF_TOKEN` secret is used only when a dataset host requires it.
 
+For an authenticated Git push from this workspace, set `GITHUB_TOKEN` in the ignored `.env` to a
+fine-grained token with **Contents: read and write** access to the target repository. Keep both
+provider tokens out of chat and source control.
+
 Deploy from the registry: the API only needs `MLFLOW_TRACKING_URI` (resolved from DagsHub) plus
 `MEDMLOPS_BOOTSTRAP_FROM_REGISTRY=1`, and it downloads champion checkpoints at startup.
 
