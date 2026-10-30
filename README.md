@@ -237,24 +237,44 @@ need shared filesystem access.
 
 ### DagsHub
 
-1. Create a DagsHub repo and fill `.env`:
+This project uses [Arman734/MLOpsProject](https://dagshub.com/Arman734/MLOpsProject) for both
+the DVC data remote and hosted MLflow. Put credentials in the ignored `.env` file:
 
 ```dotenv
-DAGSHUB_USER_NAME=your-user
-DAGSHUB_REPO_NAME=medmlops
+DAGSHUB_USER_NAME=Arman734
+DAGSHUB_REPO_NAME=MLOpsProject
 DAGSHUB_USER_TOKEN=********
 MEDMLOPS_TRACKER=dagshub
 ```
 
-2. Train as usual — `dagshub.init(...)` resolves the hosted MLflow URI; runs, artifacts and registry
-   entries stream to DagsHub:
+The DVC remote is versioned in `.dvc/config`; add credentials to the ignored local config and upload
+the pipeline outputs:
+
+```bash
+set -a
+source .env
+set +a
+dvc remote modify --local dagshub auth basic
+dvc remote modify --local dagshub user "$DAGSHUB_USER_NAME"
+dvc remote modify --local dagshub password "$DAGSHUB_USER_TOKEN"
+dvc repro
+dvc push
+```
+
+Train as usual — `dagshub.init(...)` resolves the hosted MLflow URI; runs, artifacts and registry
+entries stream to DagsHub:
 
 ```bash
 python -m medmlops.cli train --config configs/isic_unet.yaml --dagshub
 ```
 
-3. Deploy from that registry: the API only needs `MLFLOW_TRACKING_URI` (resolved from DagsHub) plus
-   `MEDMLOPS_BOOTSTRAP_FROM_REGISTRY=1`, and it downloads champion checkpoints at startup.
+The GitHub Actions **Retrain models** workflow also requires repository secrets
+`DAGSHUB_USER_NAME`, `DAGSHUB_REPO_NAME`, and `DAGSHUB_USER_TOKEN`. It prepares and pushes DVC data,
+logs training and evaluation to DagsHub MLflow, and commits updated `dvc.lock` metadata. The
+optional `HF_TOKEN` secret is used only when a dataset host requires it.
+
+Deploy from the registry: the API only needs `MLFLOW_TRACKING_URI` (resolved from DagsHub) plus
+`MEDMLOPS_BOOTSTRAP_FROM_REGISTRY=1`, and it downloads champion checkpoints at startup.
 
 Under the hood, artifact locations are backend-aware: local SQLite/file stores get an explicit
 `MLFLOW_ARTIFACT_ROOT`, while remote servers and DagsHub own their artifact store (passing a

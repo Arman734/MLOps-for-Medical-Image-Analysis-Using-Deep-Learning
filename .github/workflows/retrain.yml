@@ -17,7 +17,11 @@ on:
     - cron: "0 3 * * 0"
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: dagshub-retrain-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   retrain:
@@ -27,8 +31,9 @@ jobs:
       DAGSHUB_USER_NAME: ${{ secrets.DAGSHUB_USER_NAME }}
       DAGSHUB_REPO_NAME: ${{ secrets.DAGSHUB_REPO_NAME }}
       DAGSHUB_USER_TOKEN: ${{ secrets.DAGSHUB_USER_TOKEN }}
-      MEDMLOPS_TRACKER: ${{ secrets.DAGSHUB_USER_TOKEN != '' && 'dagshub' || 'local' }}
+      MEDMLOPS_TRACKER: dagshub
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      EPOCHS: ${{ inputs.epochs || 2 }}
 
     steps:
       - uses: actions/checkout@v4
@@ -41,28 +46,64 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
-          pip install -e ".[dev,dagshub]"
+          pip install -e ".[dev,dagshub,dvc]"
 
-      - name: Prepare ISIC 2018
+      - name: Validate DagsHub credentials and configure DVC
+        run: |
+          if [ -z "$DAGSHUB_USER_NAME" ] || [ -z "$DAGSHUB_REPO_NAME" ] || [ -z "$DAGSHUB_USER_TOKEN" ]; then
+            echo "::error::Set DAGSHUB_USER_NAME, DAGSHUB_REPO_NAME, and DAGSHUB_USER_TOKEN repository secrets."
+            exit 1
+          fi
+          dvc remote modify --local dagshub auth basic
+          dvc remote modify --local dagshub user "$DAGSHUB_USER_NAME"
+          dvc remote modify --local dagshub password "$DAGSHUB_USER_TOKEN"
+
+      - name: Pull cached DVC data
+        run: |
+          if [ -f dvc.lock ]; then
+            dvc pull
+          else
+            echo "No DVC lockfile yet; the selected preparation stages will create it."
+          fi
+
+      - name: Prepare ISIC 2018 with DVC
         if: inputs.target != 'classification'
-        run: medmlops data prepare --config configs/isic_unet.yaml
+        run: dvc repro prepare_segmentation
 
-      - name: Prepare PneumoniaMNIST
+      - name: Prepare PneumoniaMNIST with DVC
         if: inputs.target != 'segmentation'
-        run: medmlops data prepare --config configs/pneumonia_densenet.yaml
+        run: dvc repro prepare_classification
+
+      - name: Push prepared data to DagsHub
+        run: dvc push
 
       - name: Train U-Net
         if: inputs.target != 'classification'
-        run: medmlops train --config configs/isic_unet.yaml --set training.epochs=${{ inputs.epochs || 2 }}
+        run: medmlops train --config configs/isic_unet.yaml --dagshub --set "training.epochs=${EPOCHS}"
 
       - name: Train DenseNet-121
         if: inputs.target != 'segmentation'
-        run: medmlops train --config configs/pneumonia_densenet.yaml --set training.epochs=${{ inputs.epochs || 2 }}
+        run: medmlops train --config configs/pneumonia_densenet.yaml --dagshub --set "training.epochs=${EPOCHS}"
 
-      - name: Score test split
+      - name: Score ISIC test split
+        if: inputs.target != 'classification'
+        run: medmlops evaluate --config configs/isic_unet.yaml --split test
+
+      - name: Score PneumoniaMNIST test split
+        if: inputs.target != 'segmentation'
+        run: medmlops evaluate --config configs/pneumonia_densenet.yaml --split test
+
+      - name: Commit updated DVC lockfile
         run: |
-          medmlops evaluate --config configs/isic_unet.yaml --split test || true
-          medmlops evaluate --config configs/pneumonia_densenet.yaml --split test || true
+          if [ -f dvc.lock ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add dvc.lock
+            if ! git diff --cached --quiet -- dvc.lock; then
+              git commit -m "chore(dvc): update dataset lockfile"
+              git push
+            fi
+          fi
 
       - name: Upload checkpoints, metrics and plots
         uses: actions/upload-artifact@v4
