@@ -45,12 +45,29 @@ def check(client: httpx.Client, path: str, *, required: bool = True, timeout: fl
     return None
 
 
+def demo_image(client: httpx.Client, task: str) -> bytes | None:
+    """A held-out demo case when datasets are present, else a synthetic image."""
+    response = client.get(f"/api/demo/{task}", timeout=30.0)
+    if response.status_code == 200:
+        record(PASS, f"/api/demo/{task}", "held-out case")
+        return base64.b64decode(response.json()["image_base64"])
+    record(WARN, f"/api/demo/{task}", "datasets not prepared - using a synthetic image")
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    rng = np.random.default_rng(7)
+    array = rng.integers(0, 255, size=(224, 224, 3), dtype=np.uint8)
+    buffer = io.BytesIO()
+    Image.fromarray(array).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def predict(client: httpx.Client, task: str) -> dict | None:
-    demo = check(client, f"/api/demo/{task}")
-    if demo is None:
+    image = demo_image(client, task)
+    if image is None:
         return None
-    payload = demo.json()
-    image = base64.b64decode(payload["image_base64"])
     fields = {"tta": "true"} if task == "segmentation" else {"explain": "true"}
     started = time.perf_counter()
     try:
