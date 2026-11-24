@@ -355,6 +355,19 @@ def test_inference_without_models_returns_503(tmp_path):
         assert "train one first" in response.json()["detail"]
 
 
+def test_classification_demo_never_downloads(app, tmp_path, monkeypatch):
+    from medmlops.data import medmnist
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("demo endpoint must not download datasets")
+
+    monkeypatch.setattr(medmnist, "_base_dataset", forbidden)
+    monkeypatch.setattr(medmnist, "_raw_dir", lambda cfg: tmp_path)
+    response = app.get("/api/demo/classification")
+    assert response.status_code == 404
+    assert "run `make download`" in response.json()["detail"]
+
+
 def test_demo_endpoint_optional(app):
     response = app.get("/api/demo/segmentation")
     assert response.status_code in {200, 404}
