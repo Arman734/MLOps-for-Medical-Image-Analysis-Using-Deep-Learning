@@ -1,6 +1,6 @@
 # MedMLOps
 
-**A production-shaped MLOps platform for medical imaging** — U-Net lesion segmentation, DenseNet-121
+**A production-shaped MLOps platform for medical imaging** â U-Net lesion segmentation, DenseNet-121
 chest X-ray triage, MLflow tracking + registry, a custom clinical console, live drift monitoring and
 a deployment path that runs from a laptop to a container stack.
 
@@ -12,26 +12,26 @@ a deployment path that runs from a laptop to a container stack.
 [![License](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 
 > [!WARNING]
-> **Research and education only — not a medical device.** Outputs are assistive signals and must be
+> **Research and education only â not a medical device.** Outputs are assistive signals and must be
 > reviewed by a qualified clinician before any diagnostic or treatment decision.
 
-**Jump to:** [Why this project](#why-this-project) · [Architecture](#architecture) ·
-[Quickstart](#quickstart) · [Results](#verified-results) · [Console](#the-console) ·
-[MLflow & DagsHub](#mlflow--dagshub-workflow) · [API](#serving-api) · [Deployment](#deployment) ·
-[Operations](#operations) · [Troubleshooting](#troubleshooting) · [Configuration](#configuration-reference)
+**Jump to:** [Why this project](#why-this-project) Â· [Architecture](#architecture) Â·
+[Quickstart](#quickstart) Â· [Results](#verified-results) Â· [Console](#the-console) Â·
+[MLflow & DagsHub](#mlflow--dagshub-workflow) Â· [API](#serving-api) Â· [Deployment](#deployment) Â·
+[Operations](#operations) Â· [Troubleshooting](#troubleshooting) Â· [Configuration](#configuration-reference)
 
 ---
 
 ## Why this project
 
-Most portfolio MLOps repos stop at “train + log a metric”. MedMLOps follows the whole lifecycle and
+Most portfolio MLOps repos stop at âtrain + log a metricâ. MedMLOps follows the whole lifecycle and
 keeps the operational seams honest:
 
 | # | Capability | What it actually does |
 | --- | --- | --- |
 | 1 | **Two imaging modalities, one service** | U-Net segmentation (ISIC 2018) and DenseNet-121 classification (PneumoniaMNIST) share one predictor, ledger and console. |
 | 2 | **Clinical console, not a notebook dump** | React 18 + TypeScript: drag-drop intake, canvas overlays, uncertainty layer, Grad-CAM, live training log, drift dashboard. |
-| 3 | **Registry-driven deployment** | Models are registered in MLflow with a moving `champion` alias. `POST /api/models/sync` (or startup bootstrap) mirrors champions into the serving directory — no retraining required. |
+| 3 | **Registry-driven deployment** | Models are registered in MLflow with a moving `champion` alias. `POST /api/models/sync` (or startup bootstrap) mirrors champions into the serving directory â no retraining required. |
 | 4 | **One-flag DagsHub switch** | `MEDMLOPS_TRACKER=dagshub` or `--dagshub` streams runs, artifacts and registry entries to DagsHub-hosted MLflow. |
 | 5 | **Drift + human feedback loop** | Every prediction logs interpretable image features; PSI against training baselines; clinician verdicts are joined back to ledger rows. |
 | 6 | **Operable SQLite ledger** | WAL mode, indexes, online backup, retention pruning, streaming CSV export, readiness probe and database ping. |
@@ -51,9 +51,9 @@ flowchart LR
     end
 
     subgraph Train
-        C --> E[U-Net<br/>BCE + Dice · AMP]
+        C --> E[U-Net<br/>BCE + Dice Â· AMP]
         C --> F[DenseNet-121<br/>ImageNet transfer]
-        E --> G[MLflow<br/>runs · artifacts · registry]
+        E --> G[MLflow<br/>runs Â· artifacts Â· registry]
         F --> G
         G --> H[(champion alias)]
     end
@@ -61,17 +61,17 @@ flowchart LR
     subgraph Serve
         G -->|sync / bootstrap| I[artifacts/models]
         I --> J[FastAPI]
-        J --> K[React console<br/>overlays · Grad-CAM · drift]
-        J --> L[(SQLite ledger<br/>feedback · features)]
+        J --> K[React console<br/>overlays Â· Grad-CAM Â· drift]
+        J --> L[(SQLite ledger<br/>feedback Â· features)]
         J --> M[/metrics]
-        M --> N[Prometheus → Grafana]
+        M --> N[Prometheus â Grafana]
         H -.-> K
     end
 ```
 
-The lifecycle in one line: **DVC prepares data → training logs to MLflow and registers versions →
-champion promotion picks the best run → the API mirrors champions → the console and ledger close the
-loop with feedback → drift and metrics tell you when to retrain.**
+The lifecycle in one line: **DVC prepares data â training logs to MLflow and registers versions â
+champion promotion picks the best run â the API mirrors champions â the console and ledger close the
+loop with feedback â drift and metrics tell you when to retrain.**
 
 <details>
 <summary><b>Repository layout</b> (click to expand)</summary>
@@ -87,12 +87,12 @@ src/medmlops/
   monitor.py          prediction ledger, feedback, PSI drift, backup/prune
   predictor.py        inference logic shared by API and CLI
   explain.py          Grad-CAM and flip-TTA uncertainty
-  cli.py              data · train · evaluate · predict · registry · db · serve
+  cli.py              data Â· train Â· evaluate Â· predict Â· registry Â· db Â· serve
 api/                  FastAPI app, routers, background jobs, Prometheus, auth guard
 web/                  React 18 + Vite + TypeScript console
 docker/               Dockerfiles, nginx, Prometheus + Grafana provisioning
 dvc.yaml              Reproducible pipeline
-tests/                Unit, integration and API contract tests (61 tests)
+tests/                Unit, integration and API contract tests (62 tests)
 scripts/smoke_test.py Live end-to-end verification
 docs/                 Runbook + model-card notes
 ```
@@ -111,7 +111,7 @@ docs/                 Runbook + model-card notes
 
 On Windows use **Git Bash**; the Makefile selects `.venv/Scripts/python.exe` automatically.
 
-### Path A — run the platform locally
+### Path A â run the platform locally
 
 ```bash
 uv venv --python 3.12 .venv
@@ -127,14 +127,14 @@ make serve                   # http://127.0.0.1:8000
 Open **http://127.0.0.1:8000** for the console, **/docs** for OpenAPI, **/metrics** for Prometheus.
 `make mlflow` serves the MLflow UI on **:5000**.
 
-### Path B — develop with hot reload
+### Path B â develop with hot reload
 
 ```bash
 make api        # terminal 1: FastAPI on :8000
 make dev        # terminal 2: Vite on :5173 (proxies /api)
 ```
 
-### Path C — container stack
+### Path C â container stack
 
 ```bash
 cp .env.example .env
@@ -149,7 +149,7 @@ docker compose up --build
 ### Verify everything
 
 ```bash
-make test                    # pytest (61 tests, CPU-only, tiny checkpoints)
+make test                    # pytest (62 tests, CPU-only, tiny checkpoints)
 make lint                    # ruff
 python scripts/smoke_test.py # live inference, ledger, export, readiness
 make db-stats                # ledger rows, size, WAL mode
@@ -167,8 +167,8 @@ promoted to `champion`. Metrics are from the held-out test split and reproducibl
 
 | Task | Model | Test set | Headline metrics | Training |
 | --- | --- | --- | --- | --- |
-| Lesion segmentation (ISIC 2018) | U-Net, base 32 · 7.76M params | 412 images | **Dice 0.875** · IoU 0.801 · precision 0.892 · recall 0.898 · pixel acc 0.955 | 20 epochs · 23.7 min |
-| Pneumonia triage (PneumoniaMNIST) | DenseNet-121, ImageNet init · 6.96M params | 624 images | **Accuracy 0.9615** · AUC 0.9837 · sensitivity 0.9795 · specificity 0.9316 · ECE 0.0356 | 6 epochs (best 2) · 9.3 min |
+| Lesion segmentation (ISIC 2018) | U-Net, base 32 Â· 7.76M params | 412 images | **Dice 0.875** Â· IoU 0.801 Â· precision 0.892 Â· recall 0.898 Â· pixel acc 0.955 | 20 epochs Â· 23.7 min |
+| Pneumonia triage (PneumoniaMNIST) | DenseNet-121, ImageNet init Â· 6.96M params | 624 images | **Accuracy 0.9615** Â· AUC 0.9837 Â· sensitivity 0.9795 Â· specificity 0.9316 Â· ECE 0.0356 | 6 epochs (best 2) Â· 9.3 min |
 
 Raw numbers land in `metrics/*.json`; curves, ROC, confusion matrices and prediction grids in
 `artifacts/figures/`; model cards and full run metadata live inside each MLflow run.
@@ -176,9 +176,9 @@ Raw numbers land in `metrics/*.json`; curves, ROC, confusion matrices and predic
 <details>
 <summary><b>Datasets</b> (click to expand)</summary>
 
-- **ISIC 2018** — 2,594 lesion images with expert masks. Default source is a fast Hugging Face mirror
+- **ISIC 2018** â 2,594 lesion images with expert masks. Default source is a fast Hugging Face mirror
   (`sergiomadrid/isic_segmentation`); set `data.source: official` for the ~11 GB official archive.
-- **PneumoniaMNIST** — 5,856 pediatric chest X-rays, downloaded via the `medmnist` package. Other
+- **PneumoniaMNIST** â 5,856 pediatric chest X-rays, downloaded via the `medmnist` package. Other
   MedMNIST datasets work by changing `data.name`.
 
 Both prep stages write an `npz` split bundle, `manifest.json` (counts, class balance) and
@@ -254,19 +254,22 @@ the pipeline outputs:
 set -a
 source .env
 set +a
-dvc remote modify --local dagshub auth basic
-dvc remote modify --local dagshub user "$DAGSHUB_USER_NAME"
-dvc remote modify --local dagshub password "$DAGSHUB_USER_TOKEN"
+dvc remote modify --local dagshub access_key_id "$DAGSHUB_USER_TOKEN"
+dvc remote modify --local dagshub secret_access_key "$DAGSHUB_USER_TOKEN"
 dvc repro
 dvc push
 ```
 
-Train as usual — `dagshub.init(...)` resolves the hosted MLflow URI; runs, artifacts and registry
+Train as usual â `dagshub.init(...)` resolves the hosted MLflow URI; runs, artifacts and registry
 entries stream to DagsHub:
 
 ```bash
 python -m medmlops.cli train --config configs/isic_unet.yaml --dagshub
 ```
+
+For DagsHub's interactive pipeline map, run the DVC pipeline, commit `dvc.yaml` and the generated
+`dvc.lock` to the DagsHub Git repository, then push its DVC cache with `dvc push`. Open the
+repository's **Experiments → Pipelines** view to inspect the stage graph.
 
 The GitHub Actions **Retrain models** workflow also requires repository secrets
 `DAGSHUB_USER_NAME`, `DAGSHUB_REPO_NAME`, and `DAGSHUB_USER_TOKEN`. It prepares and pushes DVC data,
@@ -316,11 +319,11 @@ Base URL: `http://127.0.0.1:8000`. Interactive schema at **/docs**; machine sche
 | GET | `/api/monitoring/storage` | DB path, size, rows, journal mode (WAL) |
 | POST | `/api/monitoring/prune` | Retention: delete predictions older than `days` |
 | GET | `/api/monitoring/export.csv` | Streaming CSV with latest clinician verdict |
-| GET | `/api/experiments` · `/api/experiments/{run_id}` | MLflow runs and history |
+| GET | `/api/experiments` Â· `/api/experiments/{run_id}` | MLflow runs and history |
 | GET | `/api/registry` | Registered models and champions |
 | GET | `/api/pipeline/configs` | Trainable YAML configs |
 | POST | `/api/pipeline/train` | Launch a background training job |
-| GET | `/api/pipeline/jobs` · `/api/pipeline/jobs/{id}` | Job list / status + logs |
+| GET | `/api/pipeline/jobs` Â· `/api/pipeline/jobs/{id}` | Job list / status + logs |
 | POST | `/api/pipeline/jobs/{id}/cancel` | Cancel a job |
 | GET | `/metrics` | Prometheus exposition |
 
@@ -357,7 +360,7 @@ python scripts/smoke_test.py --api-key "$MEDMLOPS_API_KEY"
 
 ## Deployment
 
-### Option 1 — Docker Compose (single host)
+### Option 1 â Docker Compose (single host)
 
 ```bash
 cp .env.example .env          # set MEDMLOPS_API_KEY, optionally DAGSHUB_*
@@ -367,14 +370,14 @@ docker compose ps             # every service should be healthy
 
 - `api` waits for a healthy `mlflow`; `web`, `prometheus` wait for a healthy `api`.
 - Checkpoints and the ledger persist in `./artifacts`; prepared data is mounted read-only for the
-  console’s **Train** action.
+  consoleâs **Train** action.
 - The API image bundles CPU PyTorch for inference. Console-launched retraining therefore runs on CPU
-  inside compose — use a GPU host, the CLI, or the **Retrain** workflow for heavy jobs.
+  inside compose â use a GPU host, the CLI, or the **Retrain** workflow for heavy jobs.
 - The web container (nginx) proxies `/api`, `/docs`, `/redoc`, `/openapi.json` and `/metrics` to the
   API and serves the SPA for everything else.
 - Keep Grafana credentials out of source: `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`.
 
-### Option 2 — stateless service + external registry
+### Option 2 â stateless service + external registry
 
 This is the production-shaped path: the container holds **no model artifacts**, only code.
 
@@ -388,7 +391,7 @@ MEDMLOPS_BOOTSTRAP_FROM_REGISTRY=1
 MEDMLOPS_REGISTRY_NAMES=isic-lesion-unet,pneumonia-densenet
 ```
 
-On startup the API downloads each champion’s `checkpoints/*.pt` + sidecar from the registry into
+On startup the API downloads each championâs `checkpoints/*.pt` + sidecar from the registry into
 `MEDMLOPS_MODEL_DIR`, refreshes predictors and Prometheus gauges. Readiness stays **503** until both
 models load, so a load balancer will not send traffic too early.
 
@@ -399,7 +402,7 @@ automatically; for any other protected server set `MLFLOW_TRACKING_USERNAME` /
 > Keep the SQLite ledger on a persistent volume (`MEDMLOPS_DB_PATH`) and back it up with
 > `medmlops db backup` or `POST /api/monitoring/prune` for retention.
 
-### Option 3 — training job + deployment handoff
+### Option 3 â training job + deployment handoff
 
 Training runs (CLI, console or `retrain.yml`) register a version and may promote it to `champion`.
 Deployment code does not change: restart the API (or call `POST /api/models/sync`) to adopt the new
@@ -437,14 +440,14 @@ champion. Roll back by moving the alias to a previous version and syncing again.
 
 | Task | Command |
 | --- | --- |
-| Health / readiness | `curl /api/health` · `curl /api/ready` |
+| Health / readiness | `curl /api/health` Â· `curl /api/ready` |
 | Ledger stats | `make db-stats` or `python -m medmlops.cli db stats` |
 | Consistent backup | `make db-backup` (SQLite online backup API, safe while serving) |
 | Retention | `POST /api/monitoring/prune?days=30` or `python -m medmlops.cli db prune --days 30` |
 | Export ledger | `GET /api/monitoring/export.csv` |
-| Sync champions | `make sync-models` or **Models → Sync registry** |
+| Sync champions | `make sync-models` or **Models â Sync registry** |
 | Roll back champion | Move the alias with `mlflow.MlflowClient().set_registered_model_alias(...)`, then sync |
-| Drift response | Monitoring tab → identify feature → tighten review → retrain |
+| Drift response | Monitoring tab â identify feature â tighten review â retrain |
 
 Operational playbooks: [docs/runbook.md](docs/runbook.md). Metric names:
 `medmlops_api_requests_total`, `medmlops_api_request_duration_seconds`,
@@ -452,14 +455,14 @@ Operational playbooks: [docs/runbook.md](docs/runbook.md). Metric names:
 
 ### Monitoring & drift, precisely
 
-- **Ledger** — every prediction stores model id/version, latency, label, confidence, image features
+- **Ledger** â every prediction stores model id/version, latency, label, confidence, image features
   and optional feedback.
-- **Drift** — PSI compares live feature windows to training baselines: `< 0.10` stable,
-  `0.10–0.25` watch, `> 0.25` alert. Scores remain `insufficient_data` until 150 predictions
+- **Drift** â PSI compares live feature windows to training baselines: `< 0.10` stable,
+  `0.10â0.25` watch, `> 0.25` alert. Scores remain `insufficient_data` until 150 predictions
   accumulate (a 16-bin PSI needs that many samples). Baselines are sampled across the whole train
-  split, not the first N rows, and features are extracted at each model’s training resolution.
-- **Feedback** — verdicts join to ledger rows and feed the agreement statistic in the console.
-- **Storage** — WAL mode, `synchronous=NORMAL`, `busy_timeout`, task/feedback indexes, online backup,
+  split, not the first N rows, and features are extracted at each modelâs training resolution.
+- **Feedback** â verdicts join to ledger rows and feed the agreement statistic in the console.
+- **Storage** â WAL mode, `synchronous=NORMAL`, `busy_timeout`, task/feedback indexes, online backup,
   retention prune and streaming export keep SQLite predictable under concurrent reads.
 
 ---
@@ -467,7 +470,7 @@ Operational playbooks: [docs/runbook.md](docs/runbook.md). Metric names:
 ## Testing & reproducibility
 
 ```bash
-make test        # 61 tests: config, models, metrics, drift, transforms, explainability, API, tracking
+make test        # 62 tests: config, models, metrics, drift, transforms, explainability, API, tracking
 make lint        # ruff (E, F, I, UP, B)
 make smoke       # live end-to-end smoke test
 ```
@@ -476,7 +479,7 @@ The API suite builds tiny real checkpoints on CPU, so it exercises actual infere
 and ledger behaviour without downloading the datasets.
 
 ```bash
-make repro           # DVC: download → prepare → train → evaluate
+make repro           # DVC: download â prepare â train â evaluate
 dvc status           # what is stale (with the venv active)
 dvc metrics show     # metrics/*.json
 ```
@@ -497,11 +500,11 @@ python -m medmlops.cli train --config configs/isic_unet.yaml \
 
 `.env` is loaded at import time as process-environment defaults (`load_env_defaults`), and real
 environment variables always win. If a value still looks ignored, confirm the variable is not empty
-in `.env` and restart the process — environment overrides are read once per process.
+in `.env` and restart the process â environment overrides are read once per process.
 </details>
 
 <details>
-<summary><b>“DagsHub tracking requested but … not set”</b></summary>
+<summary><b>âDagsHub tracking requested but â¦ not setâ</b></summary>
 
 DagsHub is enabled (`MEDMLOPS_TRACKER=dagshub` or `--dagshub`) but one of
 `DAGSHUB_USER_NAME`, `DAGSHUB_REPO_NAME`, `DAGSHUB_USER_TOKEN` is missing. This is deliberate: the
@@ -509,7 +512,7 @@ run fails fast instead of silently writing to local SQLite.
 </details>
 
 <details>
-<summary><b>Predictions return 503 “train one first”</b></summary>
+<summary><b>Predictions return 503 âtrain one firstâ</b></summary>
 
 No checkpoint for that task in `MEDMLOPS_MODEL_DIR`. Either train (`make train-seg` / `make
 train-clf`), sync from the registry (`make sync-models`), or enable
@@ -532,7 +535,7 @@ root unset. DagsHub manages artifacts remotely by design.
 </details>
 
 <details>
-<summary><b>Compose services stay in “starting”</b></summary>
+<summary><b>Compose services stay in âstartingâ</b></summary>
 
 The stack gates on healthchecks. Check `docker compose logs mlflow` and `docker compose logs api`.
 Common causes: a slow first model load (readiness 503 until both models exist), a missing `artifacts`
@@ -543,14 +546,14 @@ volume, or a port already in use.
 <summary><b>SQLite files: `monitoring.db-wal` / `-shm`</b></summary>
 
 Those files are expected in WAL mode. Do not copy the live `.db` file; use
-`make db-backup` / `POST /api/monitoring/prune` or the CLI, which use SQLite’s online backup API.
+`make db-backup` / `POST /api/monitoring/prune` or the CLI, which use SQLiteâs online backup API.
 </details>
 
 <details>
 <summary><b>Training is slow / CUDA is not detected</b></summary>
 
 `/api/health` reports the active device. Install a CUDA build of PyTorch matching your driver, or set
-`MEDMLOPS_DEVICE=cpu` in containers. Training jobs compete with inference for the GPU — expect p95
+`MEDMLOPS_DEVICE=cpu` in containers. Training jobs compete with inference for the GPU â expect p95
 latency to rise while a job runs.
 </details>
 
@@ -565,7 +568,7 @@ Copy `.env.example` to `.env`. Environment variables override `.env`, which over
 | `MLFLOW_TRACKING_URI` | `sqlite:///mlflow.db` | Tracking backend (SQLite, HTTP server or DagsHub URI) |
 | `MLFLOW_ARTIFACT_ROOT` | `./mlartifacts` | Artifact store for local file/SQLite backends |
 | `MEDMLOPS_TRACKER` | `local` | `dagshub` enables the DagsHub workflow |
-| `DAGSHUB_USER_NAME` / `DAGSHUB_REPO_NAME` / `DAGSHUB_USER_TOKEN` | — | DagsHub credentials |
+| `DAGSHUB_USER_NAME` / `DAGSHUB_REPO_NAME` / `DAGSHUB_USER_TOKEN` | â | DagsHub credentials |
 | `MEDMLOPS_API_KEY` | empty | Enables API-key auth when set |
 | `MEDMLOPS_MODEL_DIR` | `./artifacts/models` | Serving checkpoint directory |
 | `MEDMLOPS_DB_PATH` | `./artifacts/monitoring.db` | SQLite prediction ledger |
