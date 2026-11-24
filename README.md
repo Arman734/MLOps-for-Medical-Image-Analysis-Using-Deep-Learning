@@ -4,6 +4,8 @@
 chest X-ray triage, MLflow tracking + registry, a custom clinical console, live drift monitoring and
 a deployment path that runs from a laptop to a container stack.
 
+[![CI](https://github.com/Arman734/MLOps-for-Medical-Image-Analysis-Using-Deep-Learning/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Arman734/MLOps-for-Medical-Image-Analysis-Using-Deep-Learning/actions/workflows/ci.yml)
+[![GitHub](https://img.shields.io/badge/GitHub-View%20repository-181717?logo=github&logoColor=white)](https://github.com/Arman734/MLOps-for-Medical-Image-Analysis-Using-Deep-Learning)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](#requirements)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.5+-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -197,6 +199,10 @@ Both prep stages write an `npz` split bundle, `manifest.json` (counts, class bal
 | **Experiments** | MLflow runs with metric sparklines, parameter diffs, run links; **Train** launches a background job with a live log console and auto-reloads models on success. |
 | **Monitoring** | Volume, p95 latency, agreement, drift status; PSI bars per feature; label mix; ledger storage panel (WAL, rows, size, per-task export, retention prune). |
 
+**Try it in 60 seconds:** open **Analyze**, upload a PNG/JPG (or load a prepared demo), choose the
+task, and click **Run inference**. Submit feedback in **Analyze**, then open **Monitoring** to see the
+prediction, latency, feedback status and ledger storage update live.
+
 The interface is responsive, keyboard-reachable, and uses a dark clinical theme with accessible
 contrast. When `MEDMLOPS_API_KEY` is set, a banner asks for the key once and stores it locally.
 
@@ -276,9 +282,9 @@ The GitHub Actions **Retrain models** workflow also requires repository secrets
 logs training and evaluation to DagsHub MLflow, and commits updated `dvc.lock` metadata. The
 optional `HF_TOKEN` secret is used only when a dataset host requires it.
 
-For an authenticated Git push from this workspace, set `GITHUB_TOKEN` in the ignored `.env` to a
-fine-grained token with **Contents: read and write** access to the target repository. Keep both
-provider tokens out of chat and source control.
+For scheduled workflows, add provider tokens under [GitHub Actions secrets](https://github.com/Arman734/MLOps-for-Medical-Image-Analysis-Using-Deep-Learning/settings/secrets/actions).
+For local CLI use, export tokens only in the shell that needs them; never commit them or paste them
+into chat.
 
 Deploy from the registry: the API only needs `MLFLOW_TRACKING_URI` (resolved from DagsHub) plus
 `MEDMLOPS_BOOTSTRAP_FROM_REGISTRY=1`, and it downloads champion checkpoints at startup.
