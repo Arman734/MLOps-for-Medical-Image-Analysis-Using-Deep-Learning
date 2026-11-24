@@ -150,32 +150,38 @@ def champion(registry_name: str) -> dict:
 
 @router.get("/demo/{task}")
 def demo_case(task: str, state: AppState = Depends(get_state)) -> dict:
-    """Return a real held-out test image so the console can be tried instantly."""
+    """Return a held-out test image from locally prepared data."""
     if task not in {"segmentation", "classification"}:
         raise HTTPException(status_code=400, detail="task must be segmentation or classification")
     from medmlops.config import PROJECT_ROOT
 
     try:
-        if task == "segmentation":
-            import numpy as np
+        import numpy as np
 
+        if task == "segmentation":
             path = PROJECT_ROOT / "data" / "processed" / "isic2018" / "test.npz"
             if not path.exists():
-                raise FileNotFoundError("ISIC test split not found")
-            bundle = np.load(path)
-            index = int(len(bundle["images"]) * 0.37) % len(bundle["images"])
-            image = Image.fromarray(bundle["images"][index])
-            name = str(bundle["names"][index])
+                raise FileNotFoundError("ISIC test split not found - run `make data`")
+            with np.load(path) as bundle:
+                index = int(len(bundle["images"]) * 0.37) % len(bundle["images"])
+                image = Image.fromarray(bundle["images"][index])
+                name = str(bundle["names"][index])
         else:
             from medmlops.config import load_config
             from medmlops.data import medmnist
 
             cfg = load_config("configs/pneumonia_densenet.yaml")
-            base = medmnist._base_dataset(cfg, "test")
-            index = int(len(base) * 0.61) % len(base)
-            image, _ = base[index]
-            image = image.convert("RGB") if image.mode != "RGB" else image
-            name = f"{cfg.data.name}_test_{index:04d}"
+            path = medmnist._raw_dir(cfg) / f"{str(cfg.data.name).lower()}_{int(cfg.data.image_size)}.npz"
+            if not path.exists():
+                raise FileNotFoundError("PneumoniaMNIST test data not found - run `make download`")
+            with np.load(path) as bundle:
+                images = bundle["test_images"]
+                labels = bundle["test_labels"]
+                index = int(len(images) * 0.61) % len(images)
+                image = Image.fromarray(images[index])
+                class_names = medmnist.class_names(cfg)
+                label = int(labels[index].reshape(-1)[0])
+                name = f"{cfg.data.name}_test_{index:04d}_{class_names[label]}"
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"demo case unavailable: {exc}") from exc
 
