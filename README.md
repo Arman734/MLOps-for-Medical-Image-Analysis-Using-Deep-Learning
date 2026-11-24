@@ -254,9 +254,8 @@ the pipeline outputs:
 set -a
 source .env
 set +a
-dvc remote modify --local dagshub auth basic
-dvc remote modify --local dagshub user "$DAGSHUB_USER_NAME"
-dvc remote modify --local dagshub password "$DAGSHUB_USER_TOKEN"
+dvc remote modify --local dagshub access_key_id "$DAGSHUB_USER_TOKEN"
+dvc remote modify --local dagshub secret_access_key "$DAGSHUB_USER_TOKEN"
 dvc repro
 dvc push
 ```
@@ -267,6 +266,10 @@ entries stream to DagsHub:
 ```bash
 python -m medmlops.cli train --config configs/isic_unet.yaml --dagshub
 ```
+
+For DagsHub's interactive pipeline map, run the DVC pipeline, commit `dvc.yaml` and the generated
+`dvc.lock` to the DagsHub Git repository, then push its DVC cache with `dvc push`. Open the
+repository's **Experiments → Pipelines** view to inspect the stage graph.
 
 The GitHub Actions **Retrain models** workflow also requires repository secrets
 `DAGSHUB_USER_NAME`, `DAGSHUB_REPO_NAME`, and `DAGSHUB_USER_TOKEN`. It prepares and pushes DVC data,

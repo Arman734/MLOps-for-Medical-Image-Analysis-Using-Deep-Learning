@@ -7,8 +7,10 @@ stages:
     deps:
       - configs/isic_unet.yaml
       - src/medmlops/data/isic.py
+    # Preserve the cached raw dataset so its completion marker prevents a 12 GB re-download.
     outs:
-      - data/raw/isic2018
+      - data/raw/isic2018:
+          persist: true
 
   prepare_segmentation:
     desc: Resize to 256x256, create deterministic splits, npz bundles and drift baseline.
