@@ -54,9 +54,8 @@ jobs:
             echo "::error::Set DAGSHUB_USER_NAME, DAGSHUB_REPO_NAME, and DAGSHUB_USER_TOKEN repository secrets."
             exit 1
           fi
-          dvc remote modify --local dagshub auth basic
-          dvc remote modify --local dagshub user "$DAGSHUB_USER_NAME"
-          dvc remote modify --local dagshub password "$DAGSHUB_USER_TOKEN"
+          dvc remote modify --local dagshub access_key_id "$DAGSHUB_USER_TOKEN"
+          dvc remote modify --local dagshub secret_access_key "$DAGSHUB_USER_TOKEN"
 
       - name: Pull cached DVC data
         run: |
