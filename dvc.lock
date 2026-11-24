@@ -1,0 +1,19 @@
+schema: '2.0'
+stages:
+  download_segmentation:
+    cmd: medmlops data download --config configs/isic_unet.yaml
+    deps:
+    - path: configs/isic_unet.yaml
+      hash: md5
+      md5: 2eeebc7273565cc15455ea533a134772
+      size: 832
+    - path: src/medmlops/data/isic.py
+      hash: md5
+      md5: 320e5ceb3e4839dbaf4df22e64112ef3
+      size: 11414
+    outs:
+    - path: data/raw/isic2018
+      hash: md5
+      md5: 809d94fb454d327c8e8d6f656e4f4a89.dir
+      size: 12252543838
+      nfiles: 11006
