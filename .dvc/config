@@ -2,4 +2,5 @@
     remote = dagshub
 
 ['remote "dagshub"']
-    url = https://dagshub.com/Arman734/MLOpsProject.dvc
+    url = s3://dvc
+    endpointurl = https://dagshub.com/Arman734/MLOpsProject.s3
