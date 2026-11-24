@@ -47,8 +47,12 @@ def check(client: httpx.Client, path: str, *, required: bool = True, timeout: fl
 
 def demo_image(client: httpx.Client, task: str) -> bytes | None:
     """A held-out demo case when datasets are present, else a synthetic image."""
-    response = client.get(f"/api/demo/{task}", timeout=30.0)
-    if response.status_code == 200:
+    try:
+        response = client.get(f"/api/demo/{task}", timeout=30.0)
+    except httpx.HTTPError as exc:
+        record(WARN, f"/api/demo/{task}", f"{exc.__class__.__name__} - using a synthetic image")
+        response = None
+    if response is not None and response.status_code == 200:
         record(PASS, f"/api/demo/{task}", "held-out case")
         return base64.b64decode(response.json()["image_base64"])
     record(WARN, f"/api/demo/{task}", "datasets not prepared - using a synthetic image")
@@ -144,7 +148,7 @@ def main() -> int:
             record(
                 PASS if info.get("wal") else WARN,
                 "ledger WAL",
-                f"{info.get('predictions', 0)} predictions · {info.get('size_bytes', 0)} bytes",
+                f"{info.get('predictions', 0)} predictions Â· {info.get('size_bytes', 0)} bytes",
             )
         export = check(client, "/api/monitoring/export.csv")
         if export is not None:
