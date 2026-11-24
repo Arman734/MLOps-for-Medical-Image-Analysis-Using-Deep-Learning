@@ -148,7 +148,7 @@ def main() -> int:
             record(
                 PASS if info.get("wal") else WARN,
                 "ledger WAL",
-                f"{info.get('predictions', 0)} predictions · {info.get('size_bytes', 0)} bytes",
+                f"{info.get('predictions', 0)} predictions Â· {info.get('size_bytes', 0)} bytes",
             )
         export = check(client, "/api/monitoring/export.csv")
         if export is not None:
